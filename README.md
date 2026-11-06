@@ -1,2 +1,362 @@
 # ds-app
-Java Script library of Data Structures and Applications Based on the book "Handbook of Data Structures and Applications" by Dinesh P Mehta and Sartaj Sahni
+
+A JavaScript library of data structures and applications, implemented from the
+*Handbook of Data Structures and Applications* (Dinesh P. Mehta and Sartaj Sahni,
+eds.). The goal is a complete, dependency-free, production-quality implementation
+of every structure and application in the book — not a collection of demos.
+
+This document is the project roadmap and definition of done. It is a living
+document: phases, module names, and acceptance criteria evolve as the library
+grows.
+
+---
+
+## Vision
+
+Turn the book's catalog of data structures into a coherent JavaScript library
+with one consistent API, documented complexity guarantees, and tests that pin
+behavior to the published algorithms. Every structure should be usable directly
+by application code, teachable as a reference implementation, and fast enough
+for real workloads.
+
+## Goals
+
+| # | Goal | What it means in practice |
+|---|------|---------------------------|
+| G1 | **Completeness** | All 24 structure parts and 9 application areas below are implemented and exported. |
+| G2 | **Honest complexity** | Each operation documents its asymptotic cost and meets it under a benchmark, including amortized and randomized bounds. |
+| G3 | **Correctness first** | Unit tests, property-based tests against naive reference models, invariant checks, and fuzzing. |
+| G4 | **Idiomatic JavaScript** | ES modules, iterables, `Map`/`Set`-like ergonomics, comparator injection, no hidden globals. |
+| G5 | **Zero runtime dependencies** | No runtime `dependencies`. Browser, Node, Deno, and Bun supported. |
+| G6 | **Tree-shakeable** | One subpath export per part; importing `lists` never pulls in `r-trees`. |
+| G7 | **Type safe** | TypeScript declarations shipped for every public symbol; the source is authored in TypeScript and compiled to plain JavaScript. |
+| G8 | **Teachable** | Every module has a README with the ADT, invariants, complexity table, diagrams, and a link to the source algorithm. |
+| G9 | **Deterministic** | Randomized structures accept a seeded PRNG so results are reproducible. |
+
+## Non-goals
+
+- Reimplementing the book's prose or figures. This is an independent
+  implementation; no book text is reproduced.
+- A visualizer, playground, or GUI in the core package. Those may live in
+  separate packages later.
+- Wrapping third-party data structure libraries. Everything is implemented here.
+- WASM/GPU acceleration before the pure-JavaScript versions are correct and
+  benchmarked.
+- Persistence, databases, or network protocols.
+
+## Guiding principles
+
+1. **ADT first, implementation second.** Public behavior is defined by the
+   abstract data type; the chosen structure is an implementation detail exposed
+   only where it matters (e.g. `SplayTree`, `RedBlackTree`).
+2. **One shape of API.** All containers support `size`, `isEmpty`, `clear`,
+   `toArray`, iteration, and `validate()`. Ordered containers accept an optional
+   comparator. Maps accept `set/get/has/delete`. Queues accept
+   `push/pop/peek`.
+3. **Explicit invariants.** `validate(): true | string` checks the structural
+   invariant and is called by the test suite after every mutation.
+4. **No silent surprises.** Out-of-range access returns `undefined`; invalid
+   arguments throw `TypeError`/`RangeError`; empty `pop`/`peek` is documented
+   per structure and tested.
+5. **Reference models.** Every structure is tested against a slow, obviously
+   correct model (e.g. a sorted array for ordered sets) with randomized
+   operation sequences.
+6. **Benchmark or it did not happen.** Performance claims are backed by
+   benchmarks with committed baselines and regression thresholds.
+
+---
+
+## Architecture
+
+Single published package with subpath exports. The internal layout mirrors the
+book so that code and chapter stay easy to cross-reference.
+
+```text
+src/
+  core/            # comparators, iterators, errors, invariant helpers, seeded RNG
+  lists/           # Part 1
+  trees/           # Part 2
+  graphs/          # Part 3
+  leftist-trees/   # Part 4
+  skew-heaps/      # Part 5
+  heaps/           # Part 6
+  depq/            # Part 7
+  hash-tables/     # Part 8
+  balanced-trees/  # Part 9
+  finger-search-trees/   # Part 10
+  splay-trees/     # Part 11
+  randomized/      # Part 12
+  mwpl-trees/      # Part 13
+  b-trees/         # Part 14
+  spatial/         # Part 15
+  pslg/            # Part 16
+  interval-trees/  # Part 17
+  quadtrees/       # Part 18
+  bsp/             # Part 19
+  r-trees/         # Part 20
+  approximate/     # Part 21
+  tries/           # Part 22
+  suffix/          # Part 23
+  sets/            # Part 24
+  applications/    # A1-A9
+tests/
+  unit/ property/ fuzz/ invariants/
+benchmarks/
+docs/
+```
+
+Each directory exports from an `index.ts`; the package exposes
+`ds-app/<module>` subpaths plus a barrel `ds-app` for convenience.
+
+### Public API sketch
+
+```js
+import { MinHeap } from 'ds-app/heaps';
+import { SplayTree } from 'ds-app/splay-trees';
+
+const tasks = new MinHeap((a, b) => a.priority - b.priority);
+tasks.push({ id: 'a', priority: 2 });
+tasks.push({ id: 'b', priority: 1 });
+tasks.peek(); // { id: 'b', priority: 1 }
+[...tasks];   // iterates in priority order (destructive or documented copy)
+
+const idx = new SplayTree((x, y) => x.localeCompare(y));
+idx.set('gamma', 3);
+idx.get('gamma'); // 3
+idx.validate();   // true
+```
+
+### Complexity documentation format
+
+Every structure README contains a table in this form, and the test suite asserts
+the corresponding behavior where it is observable (e.g. node counts, comparisons
+counted through the comparator):
+
+| Operation | Average | Worst | Amortized | Notes |
+|-----------|---------|-------|-----------|-------|
+| `find`    | O(log n)| O(n)  | —         | Splay trees are amortized only. |
+
+---
+
+## Roadmap overview
+
+| Phase | Theme | Parts | Target release |
+|-------|-------|-------|----------------|
+| 0 | Foundations | tooling, core, docs skeleton | v0.0 |
+| 1 | Fundamental structures | 1, 2, 3 | v0.1 |
+| 2 | Hashing and sets | 8, 24 | v0.2 |
+| 3 | Priority queues | 4, 5, 6, 7, 13 | v0.3 |
+| 4 | Search trees | 9, 10, 11, 12, 14 | v0.4 |
+| 5 | String indexes | 22, 23 | v0.5 |
+| 6 | Spatial and geometric structures | 15, 16, 17, 18, 19, 20, 21 | v0.6 |
+| 7 | Applications | A1-A9 | v1.0 |
+
+Status legend: `planned` · `in progress` · `done`. Current status: **Phase 0,
+in progress** (repository bootstrap and this roadmap).
+
+Dependencies flow left to right and top to bottom: trees before search trees,
+heaps before priority-queue variants, spatial indexes before GIS and collision
+detection. Applications are last because they compose the earlier parts.
+
+---
+
+## Phase 0 — Foundations
+
+- Package scaffolding: TypeScript source, ESM output, CJS compatibility build,
+  `.d.ts` declarations, subpath exports.
+- `src/core`: comparator utilities, `Iterator` helpers, error types, seeded
+  PRNG (xoshiro128**), invariant/assert helpers, optional operation counting.
+- Test runner, coverage, property-based testing, fuzzing harness.
+- Benchmark harness with committed baselines and CI regression thresholds.
+- Documentation site skeleton and per-module README template.
+- API review: locking the common container interface before Part 1.
+
+**Exit criteria:** CI runs lint, typecheck, unit tests, property tests, and a
+benchmark smoke test; a published dry-run package can be imported from both ESM
+and CJS.
+
+---
+
+## Phase 1 — Fundamental structures (v0.1)
+
+| # | Module | Scope |
+|---|--------|-------|
+| 1 | `lists` | Array-backed and linked lists, singly/doubly/circular/sorted variants, cursor lists, XOR-linked list, generalized/orthogonal lists, list merge and split. |
+| 2 | `trees` | Binary tree representation, traversals (pre/in/post/level, Euler tour), threaded trees, binary search tree, n-ary/general trees, parent pointers, serialization. |
+| 3 | `graphs` | Adjacency list and matrix, BFS/DFS, connected components, topological sort, spanning trees, shortest paths (Dijkstra, Bellman-Ford, Floyd-Warshall), max-flow (Edmonds-Karp, Dinic), graph generators. |
+
+**Exit criteria:** every traversal iterates without recursion where depth could
+overflow the stack; graph algorithms pass against known reference graphs and
+randomized cross-checks.
+
+---
+
+## Phase 2 — Hashing and sets (v0.2)
+
+| # | Module | Scope |
+|---|--------|-------|
+| 8 | `hash-tables` | Separate chaining, open addressing (linear, quadratic, double hashing), coalesced hashing, Robin Hood, cuckoo hashing, universal and perfect hashing, extendible/dynamic hashing, ordered hash maps. |
+| 24 | `sets` | Set ADT, bitset/bit-vector sets, union-find (quick-find, quick-union, weighted, path compression), interval sets, Bloom filter and counting Bloom filter, set operations over sorted runs. |
+
+**Exit criteria:** load-factor sweeps are benchmarked; adversarial key sets
+cannot force pathological behavior beyond documented bounds; union-find matches
+inverse-Ackermann expectations in practice.
+
+---
+
+## Phase 3 — Priority queues (v0.3)
+
+| # | Module | Scope |
+|---|--------|-------|
+| 6 | `heaps` | Binary and d-ary heaps, bottom-up heap construction, min-max heap, deap, pairing heap, binomial heap, Fibonacci heap, interval heap, indexed heaps with decrease-key. |
+| 4 | `leftist-trees` | Leftist, height-biased, and weight-biased heaps; O(log n) meld; min, max, and double-ended variants. |
+| 5 | `skew-heaps` | Self-adjusting meldable heap; amortized O(log n) insert/delete-min; recursive and iterative meld. |
+| 7 | `depq` | Double-ended priority queues: min-max heap, deap, interval heap, symmetric variants, `getMin`/`getMax` in O(1). |
+| 13 | `mwpl-trees` | Huffman coding, adaptive Huffman, length-limited Huffman, Hu-Tucker optimal alphabetic trees, minimum weighted path length trees. |
+
+**Exit criteria:** meld-based structures are compared against binary heaps on
+mixed workloads; decrease-key is tested for indexed variants; Huffman output is
+verified by code-length optimality and decode round-trips.
+
+---
+
+## Phase 4 — Search trees (v0.4)
+
+| # | Module | Scope |
+|---|--------|-------|
+| 9 | `balanced-trees` | AVL, red-black, weight-balanced trees; rotations, join/split, order statistics, range queries, iterator stability. |
+| 11 | `splay-trees` | Bottom-up and top-down splaying, `find`/`insert`/`delete`, `join`/`split`, amortized analysis tests. |
+| 12 | `randomized` | Treap, skip list, randomized BST, randomized meldable heap; seeded RNG for reproducibility. |
+| 10 | `finger-search-trees` | Level-linked B-tree, finger search from a held position, meldable finger search trees, neighbor queries. |
+| 14 | `b-trees` | B-tree, B+-tree, B*-tree, 2-3-4 tree, order parameter, bulk loading, sequential access, disk-page simulation. |
+
+**Exit criteria:** all ordered trees share a conformance suite (same operations,
+same observable order); balance invariants are validated after every randomized
+mutation; finger search shows the expected improvement when the finger moves
+locally.
+
+---
+
+## Phase 5 — String indexes (v0.5)
+
+| # | Module | Scope |
+|---|--------|-------|
+| 22 | `tries` | Standard trie, compressed/radix trie, Patricia trie, ternary search trie, double-array trie, Aho-Corasick multi-pattern search, longest-prefix match. |
+| 23 | `suffix` | Suffix tree (Ukkonen), suffix array (prefix doubling and SA-IS), LCP array (Kasai), pattern search, longest repeated substring, Burrows-Wheeler transform, FM-index. |
+
+**Exit criteria:** construction and search are validated against brute-force
+string search on randomized and adversarial alphabets (single character,
+binary, Unicode); memory behavior is measured on large inputs.
+
+---
+
+## Phase 6 — Spatial and geometric structures (v0.6)
+
+| # | Module | Scope |
+|---|--------|-------|
+| 15 | `spatial` | kd-tree, point/region quadtree variants, range trees, vantage-point and metric trees, ball trees, nearest-neighbor and k-NN search, spatial hashing. |
+| 16 | `pslg` | Planar straight-line graphs: DCEL/half-edge representation, segment intersection, sweep-line triangulation, monotone polygons, point location, overlay. |
+| 17 | `interval-trees` | Interval tree, segment tree, range tree, priority search tree; stabbing, window, and 3-sided queries; lazy propagation for segment trees. |
+| 18 | `quadtrees` | Region, point, PR, and linear quadtrees; octrees; neighbor finding; spatial decomposition and compression. |
+| 19 | `bsp` | BSP tree construction with splitter selection, front-to-back traversal, CSG operations, visibility ordering, polygon classification. |
+| 20 | `r-trees` | R-tree, R+-tree, R*-tree, Hilbert R-tree, STR bulk loading, insertion/split strategies, range and nearest-neighbor queries. |
+| 21 | `approximate` | Approximate range searching, BBD-tree, annulus queries, epsilon-kernel/core-set constructions, approximation guarantees and error bounds. |
+
+**Exit criteria:** every spatial index passes the same query-conformance suite
+against a linear scan; results are exact where the structure is exact and within
+the documented epsilon where it is approximate; degenerate geometry (duplicate
+points, collinear segments, empty input) is covered.
+
+---
+
+## Phase 7 — Applications (v1.0)
+
+| # | Module | Scope |
+|---|--------|-------|
+| A1 | `applications/ip-router` | Longest-prefix matching for IPv4/IPv6: binary trie, path-compressed trie, multibit trie, LC-trie, Lulea-style compressed trie, update support. |
+| A2 | `applications/packet-classification` | Multi-dimensional packet classification: hierarchical tries, tuple-space search, decision trees, HiCuts/HyperCuts, incremental updates. |
+| A3 | `applications/web-graph` | Dynamic web graph: compressed adjacency, reachability, PageRank/HITS, incremental link updates, dynamic connectivity. |
+| A4 | `applications/layout` | VLSI layout data structures: corner stitching, trapezoidal decomposition, rectangle overlap and neighbor queries. |
+| A5 | `applications/floorplan` | Floorplan representation: slicing trees, mosaic floorplans, sequence pairs, area/perimeter optimization hooks. |
+| A6 | `applications/graphics` | Scene graphs, BSP-based visibility, BVH and kd-tree ray-tracing accelerators, spatial hashing. |
+| A7 | `applications/gis` | Spatial indexing for maps: R-tree/quadtree indexes, TIN and DEM helpers, map overlay, nearest-feature queries, coordinate handling. |
+| A8 | `applications/collision` | Broad phase with BVH, sweep-and-prune, uniform grids, octrees; narrow-phase primitive tests; continuous collision support. |
+| A9 | `applications/computational-geometry` | Convex hull, Delaunay triangulation and Voronoi diagrams, line arrangements, polygon operations, sweep-line primitives. |
+
+**Exit criteria:** each application ships a runnable example and a benchmark
+using realistic data (routing tables, packet traces, map extracts, meshes); the
+module composes only public APIs from earlier parts.
+
+---
+
+## Milestones
+
+| Version | Contents | Gate |
+|---------|----------|------|
+| v0.0 | Tooling, core utilities, docs skeleton | CI green, package importable |
+| v0.1 | Lists, Trees, Graphs | Conformance suites pass |
+| v0.2 | Hash tables, Sets | Load-factor benchmarks stable |
+| v0.3 | Heaps, Leftist, Skew, DEPQ, MWPL | Priority-queue conformance passes |
+| v0.4 | Balanced, Splay, Randomized, Finger, B-trees | Ordered-tree conformance passes |
+| v0.5 | Tries, Suffix structures | String conformance and memory gates pass |
+| v0.6 | Parts 15-21 | Spatial conformance and epsilon checks pass |
+| v1.0 | A1-A9, docs, benchmarks, API freeze | Full suite, docs, and examples complete |
+
+No version ships with a structure marked `done` unless it has: implementation,
+type declarations, unit + property tests, invariant checks, complexity docs,
+benchmark, and an example.
+
+---
+
+## Definition of done (per part)
+
+1. **Public API** implemented with the common container interface and iterables.
+2. **Types** exported; no `any` in the public surface.
+3. **Unit tests** for every operation and boundary case.
+4. **Property tests** against a naive reference model over randomized operation
+   sequences.
+5. **Invariant checks** run after every mutation in tests; `validate()` exposed.
+6. **Fuzz tests** for parsers/builders and adversarial inputs.
+7. **Complexity table** and algorithm notes in the module README.
+8. **Benchmarks** with a committed baseline and a CI regression threshold.
+9. **Example** in `examples/` and a runnable snippet in the README.
+10. **No runtime dependencies**, no Node-only APIs in portable modules.
+
+## Testing strategy
+
+- **Reference models:** sorted arrays for ordered sets, arrays for sequences,
+  brute-force scans for spatial queries, naive matchers for strings.
+- **Differential testing:** run the same random operation log against the
+  reference model and the structure, compare after each step.
+- **Invariant validation:** balance factors, heap order, node colors, prefix
+  ordering, bounding boxes, trie edges, union-find forest shape.
+- **Determinism:** seeded PRNG for randomized structures; failing seeds are
+  recorded and replayed as regression tests.
+- **Performance gates:** operations/second and memory per element tracked per
+  release; regressions beyond a threshold fail CI.
+
+## Documentation strategy
+
+Each module gets a README with: ADT contract, supported operations, complexity
+table (average/worst/amortized and space), invariants, implementation notes,
+edge cases, API example, and a pointer to the corresponding book part. The root
+README stays focused on the roadmap; the docs site renders the module READMEs.
+
+## Contributing
+
+Work one part at a time, in roadmap order unless a dependency allows otherwise.
+Every PR must include the definition-of-done checklist above and must not
+regress existing benchmarks. Keep structures independent: a module may import
+from `core` and from earlier roadmap parts, never from later ones or from
+`applications`.
+
+## Book attribution
+
+Based on *Handbook of Data Structures and Applications*, edited by Dinesh P.
+Mehta and Sartaj Sahni (Chapman & Hall/CRC). This project is an independent
+implementation and is not affiliated with or endorsed by the editors or
+publisher. Book text and figures are not reproduced.
+
+## License
+
+Apache-2.0. See [LICENSE](./LICENSE).
