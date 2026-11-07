@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./core": "./src/core/index.ts",
+    "./graphs": "./src/graphs/index.ts",
     "./lists": "./src/lists/index.ts",
     "./trees": "./src/trees/index.ts"
   },
