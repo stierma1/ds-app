@@ -469,3 +469,42 @@ test("HashSet supports custom equality and random operations", () => {
     assert.equal(restored.has(value), true);
   }
 });
+
+test("OrderedHashMap keeps insertion order through heavy deletion and compaction", () => {
+  const map = new OrderedHashMap<number, number>();
+  const count = 20000;
+  for (let key = 0; key < count; key++) {
+    map.set(key, key * 2);
+  }
+  const start = performance.now();
+  for (let key = 0; key < count; key++) {
+    if (key % 3 !== 0) {
+      assert.equal(map.delete(key), true);
+    }
+  }
+  assert.equal(map.delete(1), false);
+  const elapsed = performance.now() - start;
+  assert.ok(elapsed < 1000, `ordered deletes took ${elapsed.toFixed(1)} ms`);
+  assert.equal(map.validate(), true);
+  const expected: number[] = [];
+  for (let key = 0; key < count; key += 3) {
+    expected.push(key);
+  }
+  assert.deepEqual([...map.keys()], expected);
+  // Re-inserting a deleted key appends it; updating a live key keeps its slot.
+  map.set(1, -1);
+  map.set(0, -2);
+  const keys = [...map.keys()];
+  assert.equal(keys[0], 0);
+  assert.equal(keys[keys.length - 1], 1);
+  assert.equal(map.get(0), -2);
+  assert.equal(map.validate(), true);
+  const restored = OrderedHashMap.deserialize<number, number>(map.serialize());
+  assert.deepEqual([...restored.keys()], keys);
+  map.clear();
+  assert.equal(map.size, 0);
+  assert.deepEqual([...map.keys()], []);
+  map.set(5, 5);
+  assert.deepEqual([...map.entries()], [[5, 5]]);
+  assert.equal(map.validate(), true);
+});

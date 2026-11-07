@@ -9,6 +9,12 @@ import {
   endpointIndex,
 } from "./shared.ts";
 
+/**
+ * Breadth-first order from `start`. O(V+E) time and space (buildAdjacency plus a visited
+ * bitmap). Iterative: the queue is an array read by a moving head index, so there is no
+ * O(n) shift() per dequeue. Only vertices reachable from `start` are returned; weights are
+ * ignored. Respects `options.directed`.
+ */
 export function bfs(
   graph: Graph,
   start: Vertex,
@@ -33,6 +39,12 @@ export function bfs(
   return result;
 }
 
+/**
+ * Depth-first preorder from `start`. O(V+E) time and space. ITERATIVE with an explicit
+ * stack, so deep or long-path graphs cannot overflow the call stack. Neighbors are pushed
+ * in reverse so the visit order matches the recursive formulation, and vertices are marked
+ * at push time so the stack never exceeds V entries. Respects `options.directed`.
+ */
 export function dfs(
   graph: Graph,
   start: Vertex,
@@ -59,6 +71,12 @@ export function dfs(
   return result;
 }
 
+/**
+ * Components of the UNDIRECTED view of the graph (direction and `options` are ignored, so a
+ * directed graph yields weakly connected components; use stronglyConnectedComponents for
+ * strong ones). O(V+E) time and space; iterative BFS from each unvisited vertex, with
+ * components emitted in vertex insertion order.
+ */
 export function connectedComponents(
   graph: Graph,
   _options?: GraphAlgorithmOptions,
@@ -88,6 +106,12 @@ export function connectedComponents(
   return components;
 }
 
+/**
+ * Kahn's algorithm: O(V+E) time and space, iterative (in-degree array plus an array queue),
+ * no recursion. Requires a directed graph (TypeError otherwise). A cycle is only detected
+ * after the full pass, by comparing output length to V, and throws RangeError; there is no
+ * early exit. Ties are broken by vertex insertion order, so output is deterministic.
+ */
 export function topologicalSort(
   graph: Graph,
   options?: GraphAlgorithmOptions,

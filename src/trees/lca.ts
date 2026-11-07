@@ -22,6 +22,7 @@ interface Versioned {
   readonly version?: number;
 }
 
+/** O(d): materializes a node's children, reading first-child/next-sibling for GeneralTree. */
 function childrenOf<T>(tree: TreeLike<T> | GeneralTreeContract<T>, node: TreeNode<T>): TreeNode<T>[] {
   if (tree instanceof GeneralTree) {
     const result: TreeNode<T>[] = [];
@@ -38,6 +39,16 @@ function childrenOf<T>(tree: TreeLike<T> | GeneralTreeContract<T>, node: TreeNod
   return result;
 }
 
+/**
+ * Immutable LCA index over a BFS snapshot of the tree: nodes are renumbered 0..n-1
+ * with parents, depths, and child lists in flat integer arrays. 'euler-rmq' stores
+ * the (2n-1)-entry Euler tour (built iteratively) plus a sparse table: O(n log n)
+ * preprocessing time and space, O(1) per lca(). 'binary-lifting' stores only jump
+ * tables: O(n log D) time and space for max depth D, O(log D) per lca(). The jump
+ * tables are built for BOTH methods, so euler-rmq is strictly the larger footprint;
+ * choose it when queries vastly outnumber builds. Any version-bumping mutation of
+ * the source tree makes every query throw ConcurrentModificationError.
+ */
 class SnapshotLca<T> implements LowestCommonAncestor<T> {
   private readonly _nodes: TreeNode<T>[];
   private readonly _indexOf: Map<TreeNode<T>, number>;
@@ -53,6 +64,10 @@ class SnapshotLca<T> implements LowestCommonAncestor<T> {
   private readonly _eulerDepths: number[] | null;
   private readonly _sparse: number[][] | null;
 
+  /**
+   * Preprocessing: O(n log D) for the jump tables (always), plus O(n log n) for the
+   * Euler tour and sparse table when method is 'euler-rmq'. Fully iterative.
+   */
   constructor(
     tree: TreeLike<T> | GeneralTreeContract<T>,
     method: LcaMethod,
@@ -142,14 +157,20 @@ class SnapshotLca<T> implements LowestCommonAncestor<T> {
     }
   }
 
+  /** O(1). */
   get size(): number {
     return this._nodes.length;
   }
 
+  /** O(1): the internal BFS-ordered array itself, not a copy; do not mutate it. */
   get nodes(): readonly TreeNode<T>[] {
     return this._nodes;
   }
 
+  /**
+   * O(1) with 'euler-rmq' (two sparse-table reads), O(log D) with 'binary-lifting';
+   * plus two Map lookups and the staleness check. No recursion, no allocation.
+   */
   lca(a: TreeNode<T>, b: TreeNode<T>): TreeNode<T> {
     this.ensureAlive();
     const left = this.indexOfNode(a);
@@ -161,16 +182,23 @@ class SnapshotLca<T> implements LowestCommonAncestor<T> {
     return this._nodes[index];
   }
 
+  /** O(1): precomputed; one Map lookup. */
   depth(node: TreeNode<T>): number {
     this.ensureAlive();
     return this._depth[this.indexOfNode(node)];
   }
 
+  /** Same cost as lca() plus three O(1) depth reads. */
   distance(a: TreeNode<T>, b: TreeNode<T>): number {
     const ancestor = this.lca(a, b);
     return this.depth(a) + this.depth(b) - 2 * this.depth(ancestor);
   }
 
+  /**
+   * O(depth(node) - depth(ancestor)): climbs the flat parent array one level at a time
+   * and ignores both query tables, so it is O(D) worst case. For deep trees
+   * `lca(ancestor, node) === ancestor` is the cheaper O(1)/O(log D) test.
+   */
   isAncestor(ancestor: TreeNode<T>, node: TreeNode<T>): boolean {
     this.ensureAlive();
     let current = this.indexOfNode(node);
@@ -185,6 +213,7 @@ class SnapshotLca<T> implements LowestCommonAncestor<T> {
     return current === target;
   }
 
+  /** O(n): writes values, parents, and child lists; query tables are rebuilt on load. */
   serialize(): string {
     const values: T[] = [];
     for (const node of this._nodes) {
@@ -201,6 +230,7 @@ class SnapshotLca<T> implements LowestCommonAncestor<T> {
     });
   }
 
+  /** O(n): checks parent/depth/child consistency and Euler coverage; no tree access. */
   validate(): true | string {
     this.ensureAlive();
     if (this._nodes.length === 0) {
@@ -235,6 +265,7 @@ class SnapshotLca<T> implements LowestCommonAncestor<T> {
     return true;
   }
 
+  /** O(1): throws if the source tree's version moved; deserialized snapshots skip this check. */
   private ensureAlive(): void {
     if (this._version === undefined) {
       return;
@@ -303,6 +334,12 @@ class SnapshotLca<T> implements LowestCommonAncestor<T> {
   }
 }
 
+/**
+ * O(n) parse and validation, then the same preprocessing as buildLca (O(n log n) for
+ * euler-rmq, O(n log D) for binary-lifting). The result holds fresh makeNode copies
+ * with parent pointers only (no left/right links), is detached from any tree, and
+ * therefore never throws for staleness.
+ */
 export function deserializeLca<T>(json: unknown): LowestCommonAncestor<T> {
   const record = parseSerialized(json, "LowestCommonAncestor");
   const method = readString(record, "method");
@@ -384,6 +421,14 @@ export function deserializeLca<T>(json: unknown): LowestCommonAncestor<T> {
   );
 }
 
+/**
+ * Snapshots `tree` with one iterative BFS (O(n), builds a Map from node to index and
+ * rejects shared subtrees/cycles), then preprocesses: O(n log n) time and space for
+ * the default 'euler-rmq' (O(1) lca), O(n log D) for 'binary-lifting' (O(log D) lca),
+ * D being the max depth. Prefer euler-rmq for many queries on one static tree and
+ * binary-lifting when memory matters or the tree is shallow and rebuilt often.
+ * Queries throw ConcurrentModificationError once the tree's version changes.
+ */
 export function buildLca<T>(
   tree: TreeLike<T> | GeneralTreeContract<T>,
   method: LcaMethod = "euler-rmq",

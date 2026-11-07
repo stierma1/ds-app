@@ -1,19 +1,32 @@
+/** Version stamped into every serialized record; parseSerialized rejects any other value. */
 export const SERIALIZATION_VERSION = 1;
 
+/**
+ * Anything that can emit itself as a JSON string via serialize(). Every container's output is O(n)
+ * in its contents (or O(capacity) for the bit-array filters).
+ */
 export interface Serializable {
   serialize(): string;
 }
 
+/**
+ * Static counterpart of Serializable: `deserialize` accepts either a JSON string or an
+ * already-parsed object.
+ */
 export interface SerializableConstructor<T> {
   deserialize(json: unknown): T;
 }
 
+/**
+ * Shape of every serialized container: a `type` tag, a `version`, and type-specific payload fields.
+ */
 export interface SerializedRecord {
   type: string;
   version: number;
   [key: string]: unknown;
 }
 
+/** O(size of payload): a single JSON.stringify of `{ type, version, ...payload }`. */
 export function serializeRecord(
   type: string,
   payload: Record<string, unknown>,
@@ -21,6 +34,11 @@ export function serializeRecord(
   return JSON.stringify({ type, version: SERIALIZATION_VERSION, ...payload });
 }
 
+/**
+ * O(length of json) when given a string (one JSON.parse); O(1) when given an already-parsed object,
+ * which is returned as-is without copying. Validates the type tag and version and throws TypeError
+ * otherwise.
+ */
 export function parseSerialized(
   json: unknown,
   expectedType: string | readonly string[],
@@ -47,6 +65,10 @@ export function parseSerialized(
   return record as SerializedRecord;
 }
 
+/**
+ * O(1) field accessor; throws TypeError unless the field is an array. The array is returned, not
+ * copied.
+ */
 export function readArray(record: Record<string, unknown>, key: string): unknown[] {
   const value = record[key];
   if (!Array.isArray(value)) {
@@ -55,10 +77,12 @@ export function readArray(record: Record<string, unknown>, key: string): unknown
   return value;
 }
 
+/** O(1); throws TypeError unless the field is a finite number. */
 export function readNumber(record: Record<string, unknown>, key: string): number {
   return readNumberValue(record[key], key);
 }
 
+/** O(1) finite-number check on a bare value. */
 export function readNumberValue(value: unknown, name: string): number {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     throw new TypeError(`${name} must be a finite number`);
@@ -66,6 +90,7 @@ export function readNumberValue(value: unknown, name: string): number {
   return value;
 }
 
+/** O(1); throws TypeError unless the field is a finite integer. */
 export function readInteger(record: Record<string, unknown>, key: string): number {
   const value = readNumber(record, key);
   if (!Number.isInteger(value)) {
@@ -74,6 +99,7 @@ export function readInteger(record: Record<string, unknown>, key: string): numbe
   return value;
 }
 
+/** O(1); `undefined` when the field is absent, otherwise the same check as readInteger. */
 export function readOptionalInteger(
   record: Record<string, unknown>,
   key: string,
@@ -89,6 +115,7 @@ export function readOptionalInteger(
   return number;
 }
 
+/** O(1); throws TypeError unless the field is a string. */
 export function readString(record: Record<string, unknown>, key: string): string {
   const value = record[key];
   if (typeof value !== "string") {
@@ -97,6 +124,7 @@ export function readString(record: Record<string, unknown>, key: string): string
   return value;
 }
 
+/** O(1); throws TypeError unless the value is a non-null, non-array object. */
 export function readObject(
   value: unknown,
   name: string,
@@ -107,6 +135,7 @@ export function readObject(
   return value as Record<string, unknown>;
 }
 
+/** O(1); rejects `undefined` only and passes any other value through as T unchecked. */
 export function readValue<T>(value: unknown, name: string): T {
   if (value === undefined) {
     throw new TypeError(`${name} must not be undefined`);

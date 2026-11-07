@@ -9,6 +9,20 @@ const EMPTY = 0;
 const OCCUPIED = 1;
 const TOMBSTONE = 2;
 
+/**
+ * Open-addressing base shared by LinearProbing, QuadraticProbing and DoubleHashing. Storage is
+ * four parallel arrays (Uint8Array states, keys, values, hashes) with no per-entry objects, so it
+ * is the most compact, cache-friendly map family here; subclasses only supply the probe rule.
+ * loadFactor must be < 1 (default 0.75). Deletion writes a tombstone; tombstones stay in the probe
+ * path (get/set/delete skip over them until an EMPTY slot), so a delete-heavy workload lengthens
+ * probes until they are purged. Purging is a rehash at the SAME capacity, triggered when (a) set()
+ * finds size + tombstones + 1 > capacity * loadFactor while live entries still fit, or (b) delete()
+ * leaves more than max(16, size) tombstones; growth doubles the capacity. Either rehash is
+ * O(n + capacity) and recomputes every key's hash.
+ * Expected O(1) per operation at the default load; worst case is a probe over all `capacity` slots
+ * (every probe rule here is a full permutation of the power-of-two table, so a free slot is always
+ * found below load factor 1). Iteration is a snapshot (see HashTableBase).
+ */
 export abstract class OpenAddressingBase<K, V> extends HashTableBase<K, V> {
   protected _states: Uint8Array;
   protected _keys: Array<K | undefined>;
@@ -34,6 +48,10 @@ export abstract class OpenAddressingBase<K, V> extends HashTableBase<K, V> {
 
   protected abstract override get serializationType(): string;
 
+  /**
+   * Expected O(1): probes past tombstones to rule out an existing key, then reuses the first
+   * tombstone seen. O(n + capacity) when the pre-check triggers a purge or doubling rehash.
+   */
   set(key: K, value: V): this {
     this.assertStorable(key, value);
     if (this._size + this._tombstones + 1 > this._capacity * this._loadFactor) {
@@ -88,6 +106,10 @@ export abstract class OpenAddressingBase<K, V> extends HashTableBase<K, V> {
     throw new RangeError("hash table probe sequence failed to find a free slot");
   }
 
+  /**
+   * Expected O(1); probes until an EMPTY slot, so tombstones extend unsuccessful lookups. Worst
+   * O(capacity).
+   */
   get(key: K): V | undefined {
     const hash = this.hashKey(key);
     const mask = this._capacity - 1;
@@ -108,10 +130,15 @@ export abstract class OpenAddressingBase<K, V> extends HashTableBase<K, V> {
     return undefined;
   }
 
+  /** Same cost as get(). */
   has(key: K): boolean {
     return this.get(key) !== undefined;
   }
 
+  /**
+   * Expected O(1): marks a tombstone without shifting anything. Triggers an O(n + capacity)
+   * same-capacity rehash once tombstones exceed max(16, size).
+   */
   delete(key: K): boolean {
     const hash = this.hashKey(key);
     const mask = this._capacity - 1;
@@ -142,6 +169,7 @@ export abstract class OpenAddressingBase<K, V> extends HashTableBase<K, V> {
     return false;
   }
 
+  /** O(capacity): reallocates all four slot arrays at the current capacity. */
   clear(): void {
     this.allocate(this._capacity);
     this._size = 0;
@@ -149,11 +177,16 @@ export abstract class OpenAddressingBase<K, V> extends HashTableBase<K, V> {
     this.touch();
   }
 
+  /**
+   * `capacity` is an entry count: one O(n + newCapacity) rehash (which also purges tombstones) if
+   * that many entries would exceed the load factor, otherwise a no-op. Never shrinks.
+   */
   reserve(capacity: number): void {
     this.assertCapacity(capacity);
     this.ensureCapacityForEntries(capacity);
   }
 
+  /** O(capacity + n * probe length) and re-hashes every key; diagnostic only. */
   validate(): true | string {
     if (this._states.length !== this._capacity) {
       return "slot array length does not match capacity";
@@ -238,6 +271,10 @@ export abstract class OpenAddressingBase<K, V> extends HashTableBase<K, V> {
     return true;
   }
 
+  /**
+   * O(capacity + n): the payload includes the full state array, so its size tracks capacity rather
+   * than n.
+   */
   override serialize(): string {
     const slots: Array<[number, K, V, number]> = [];
     for (let index = 0; index < this._capacity; index++) {
@@ -336,6 +373,10 @@ export abstract class OpenAddressingBase<K, V> extends HashTableBase<K, V> {
     return entries;
   }
 
+  /**
+   * O(n + capacity): reallocates, drops every tombstone, and re-probes each entry with a freshly
+   * computed hash.
+   */
   protected rehash(capacity: number): void {
     const entries = this.collectEntries();
     this._capacity = nextPowerOfTwo(capacity);
@@ -373,6 +414,12 @@ export abstract class OpenAddressingBase<K, V> extends HashTableBase<K, V> {
   }
 }
 
+/**
+ * Probe rule: (hash + attempt) & mask, i.e. the next adjacent slot. Best cache locality of the
+ * three but suffers primary clustering: runs of occupied slots merge and probe lengths grow
+ * quickly above roughly 0.7 load. Choose it for small tables or low load factors; see RobinHood
+ * for a linear probe that bounds the variance and avoids tombstones.
+ */
 export class LinearProbing<K, V> extends OpenAddressingBase<K, V> {
   constructor(options: HashOptions<K> = {}) {
     super(options);
@@ -391,6 +438,10 @@ export class LinearProbing<K, V> extends OpenAddressingBase<K, V> {
     return "LinearProbing";
   }
 
+  /**
+   * O(capacity + n) when the payload carries a layout (slots restored verbatim, no probing);
+   * otherwise O(n) expected re-insertion. Always followed by an O(capacity + n * probe) validate.
+   */
   static deserialize<K, V>(
     json: unknown,
     options: HashOptions<K> = {},
@@ -415,6 +466,12 @@ export class LinearProbing<K, V> extends OpenAddressingBase<K, V> {
   }
 }
 
+/**
+ * Probe rule: (hash + attempt * (attempt + 1) / 2) & mask (triangular numbers). On a power-of-two
+ * table this visits every slot exactly once, so inserts cannot fail below load factor 1. Avoids
+ * linear probing's primary clustering at the cost of locality; keys with the same home slot still
+ * share one sequence (secondary clustering).
+ */
 export class QuadraticProbing<K, V> extends OpenAddressingBase<K, V> {
   constructor(options: HashOptions<K> = {}) {
     super(options);
@@ -433,6 +490,10 @@ export class QuadraticProbing<K, V> extends OpenAddressingBase<K, V> {
     return "QuadraticProbing";
   }
 
+  /**
+   * O(capacity + n) from a layout payload; otherwise O(n) expected re-insertion. Always followed by
+   * an O(capacity + n * probe) validate.
+   */
   static deserialize<K, V>(
     json: unknown,
     options: HashOptions<K> = {},
@@ -457,6 +518,13 @@ export class QuadraticProbing<K, V> extends OpenAddressingBase<K, V> {
   }
 }
 
+/**
+ * Probe rule: (hash + attempt * step) & mask with step = ((hash >>> 16) ^ hash) | 1. The odd step
+ * is coprime with the power-of-two capacity, so the sequence is a full permutation. Spreads
+ * same-home keys onto different sequences (least clustering of the three) but every probe is a
+ * cache miss, and because the step is derived from the same 32-bit hash, keys with identical
+ * hashes still collide on every probe.
+ */
 export class DoubleHashing<K, V> extends OpenAddressingBase<K, V> {
   constructor(options: HashOptions<K> = {}) {
     super(options);
@@ -476,6 +544,10 @@ export class DoubleHashing<K, V> extends OpenAddressingBase<K, V> {
     return "DoubleHashing";
   }
 
+  /**
+   * O(capacity + n) from a layout payload; otherwise O(n) expected re-insertion. Always followed by
+   * an O(capacity + n * probe) validate.
+   */
   static deserialize<K, V>(
     json: unknown,
     options: HashOptions<K> = {},

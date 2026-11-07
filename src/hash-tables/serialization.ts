@@ -17,6 +17,10 @@ export interface ParsedHashTable<K, V> {
   entries: Array<[K, V]>;
 }
 
+/**
+ * O(n) to copy and validate the entries into a payload array, then JSON.stringify of the whole
+ * record (O(serialized size)); the intermediate copy doubles peak memory for the entries.
+ */
 export function serializeMap(
   type: string,
   capacity: number,
@@ -38,6 +42,10 @@ export function serializeMap(
   });
 }
 
+/**
+ * O(n): validates every [key, value] pair into a fresh entries array; callers re-insert them one
+ * by one (or restore a layout), so deserialization is at least O(n) on top of JSON.parse.
+ */
 export function parseMap<K, V>(
   json: unknown,
   type: string,

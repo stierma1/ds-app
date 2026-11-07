@@ -9,6 +9,17 @@ interface ChainEntry<K, V> {
   hash: number;
 }
 
+/**
+ * Chained hash table: an array of `capacity` buckets, each a plain JS array of {key, value, hash}
+ * entries; bucket = hash & (capacity - 1).
+ * Fast: expected O(1) set/get/delete with no tombstones and no probe clustering, and it tolerates
+ * any load factor (the default 0.75 is not capped below 1). Slow: one array per bucket plus one
+ * entry object per key, so it uses more memory and has worse locality than the open-addressing
+ * tables; prefer LinearProbing or RobinHood for small primitive keys at moderate load.
+ * Worst case for every operation is O(n) when many keys share one bucket (poor or adversarial
+ * hash). Grows by doubling when size exceeds capacity * loadFactor (checked after the insert), an
+ * O(n + capacity) rehash that re-hashes every key. Iteration is a snapshot (see HashTableBase).
+ */
 export class SeparateChaining<K, V> extends HashTableBase<K, V> {
   private _buckets: Array<Array<ChainEntry<K, V>>>;
 
@@ -17,6 +28,10 @@ export class SeparateChaining<K, V> extends HashTableBase<K, V> {
     this._buckets = this.createBuckets(this._capacity);
   }
 
+  /**
+   * Expected O(1): scans one chain for an existing key, else appends. O(n + capacity) when the
+   * insert pushes size past capacity * loadFactor and the table doubles.
+   */
   set(key: K, value: V): this {
     this.assertStorable(key, value);
     const hash = this.hashKey(key);
@@ -37,6 +52,7 @@ export class SeparateChaining<K, V> extends HashTableBase<K, V> {
     return this;
   }
 
+  /** Expected O(1); worst O(n) when the bucket's chain holds many colliding keys. */
   get(key: K): V | undefined {
     const hash = this.hashKey(key);
     const bucket = this._buckets[hash & (this._capacity - 1)];
@@ -48,10 +64,12 @@ export class SeparateChaining<K, V> extends HashTableBase<K, V> {
     return undefined;
   }
 
+  /** Same cost as get() (values can never be undefined, so the check is exact). */
   has(key: K): boolean {
     return this.get(key) !== undefined;
   }
 
+  /** Expected O(1): splices the entry out of its chain; no tombstones, capacity never shrinks. */
   delete(key: K): boolean {
     const hash = this.hashKey(key);
     const bucket = this._buckets[hash & (this._capacity - 1)];
@@ -67,17 +85,23 @@ export class SeparateChaining<K, V> extends HashTableBase<K, V> {
     return false;
   }
 
+  /** O(capacity): allocates a fresh empty array for every bucket; capacity is retained. */
   clear(): void {
     this._buckets = this.createBuckets(this._capacity);
     this._size = 0;
     this.touch();
   }
 
+  /**
+   * `capacity` is an entry count: one O(n + newCapacity) rehash if that many entries would exceed
+   * the load factor, otherwise a no-op. Never shrinks.
+   */
   reserve(capacity: number): void {
     this.assertCapacity(capacity);
     this.ensureCapacityForEntries(capacity);
   }
 
+  /** O(n + capacity) and re-hashes every key; diagnostic only. */
   validate(): true | string {
     if (this._buckets.length !== this._capacity) {
       return "bucket array length does not match capacity";
@@ -138,6 +162,7 @@ export class SeparateChaining<K, V> extends HashTableBase<K, V> {
     return "SeparateChaining";
   }
 
+  /** O(n + capacity): rebuilds every bucket and recomputes every key's hash. */
   protected rehash(capacity: number): void {
     const entries = this.collectEntries();
     this._capacity = nextPowerOfTwo(capacity);
@@ -150,6 +175,7 @@ export class SeparateChaining<K, V> extends HashTableBase<K, V> {
     this.touch();
   }
 
+  /** O(n) expected: re-inserts every entry with set(), then runs an O(n + capacity) validate. */
   static deserialize<K, V>(
     json: unknown,
     options: HashOptions<K> = {},
@@ -174,6 +200,10 @@ export class SeparateChaining<K, V> extends HashTableBase<K, V> {
   }
 }
 
+/**
+ * The module's default map: SeparateChaining under a different serialization tag, with identical
+ * performance characteristics (expected O(1) operations, doubling at load factor 0.75).
+ */
 export class HashMap<K, V> extends SeparateChaining<K, V> {
   constructor(options: HashOptions<K> = {}) {
     super(options);
@@ -183,6 +213,7 @@ export class HashMap<K, V> extends SeparateChaining<K, V> {
     return "HashMap";
   }
 
+  /** O(n) expected re-insertion followed by an O(n + capacity) validate. */
   static override deserialize<K, V>(
     json: unknown,
     options: HashOptions<K> = {},

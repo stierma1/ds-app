@@ -1,3 +1,8 @@
+/**
+ * Three-way comparison: negative when a < b, zero when equal, positive when a > b. Ordered
+ * containers call it O(log n) times per lookup and O(n log n) times per bulk build, so keep it
+ * cheap and allocation-free.
+ */
 export type Comparator<T> = (a: T, b: T) => number;
 
 function primitiveCompare(a: unknown, b: unknown): number | undefined {
@@ -31,6 +36,12 @@ function toComparable(value: unknown): unknown {
   return value;
 }
 
+/**
+ * O(1) per call. Fast path for same-type number, bigint, and string pairs; otherwise unwraps Date
+ * via getTime() and objects via valueOf() and compares the resulting primitives. Throws TypeError
+ * for null or undefined and for anything else (plain objects, mixed types), so supply an explicit
+ * comparator for those.
+ */
 export function defaultComparator<T>(a: T, b: T): number {
   if (a === undefined || b === undefined || a === null || b === null) {
     throw new TypeError("Cannot compare null or undefined values");
@@ -53,6 +64,10 @@ export function defaultComparator<T>(a: T, b: T): number {
   );
 }
 
+/**
+ * O(1): returns `compare` when given (throwing TypeError if it is not a function), otherwise
+ * defaultComparator.
+ */
 export function resolveComparator<T>(compare?: Comparator<T>): Comparator<T> {
   if (compare === undefined) {
     return defaultComparator;

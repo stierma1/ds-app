@@ -20,6 +20,21 @@ interface Location {
   next: number;
 }
 
+/**
+ * XOR linked list in an arena: values, one link word per node and a free-list
+ * chain live in parallel arrays addressed by 1-based integer ids. Each link
+ * word is prev ^ next of the neighbouring ids, so a node costs one integer of
+ * link storage instead of CursorList's two.
+ *
+ * The saving has a price: a link can only be decoded when the id you arrived
+ * from is known, so every walk carries (prev, id) pairs and nothing can step
+ * from a bare id. Access is therefore strictly by index: locate walks from the
+ * nearer end in O(min(index, n - index)) with one XOR per hop, and the ends
+ * are O(1). Freed slots are recycled through the free list; the arena only
+ * grows until clear or a rebuild. splice/reverse/sort/split flatten and rebuild
+ * the arena (O(n)). Iteration is over a snapshot and throws
+ * ConcurrentModificationError if the list is mutated mid-iteration.
+ */
 export class XorLinkedList<T> extends ContainerBase<T> implements ListLike<T> {
   private _values: Array<T | undefined> = [];
   private _links: number[] = [];
@@ -28,6 +43,7 @@ export class XorLinkedList<T> extends ContainerBase<T> implements ListLike<T> {
   private _head = 0;
   private _tail = 0;
 
+  /** O(1): reuses a freed slot, else appends to all three arena arrays (amortized O(1)). */
   private allocate(value: T): number {
     if (this._freeHead !== 0) {
       const id = this._freeHead;
@@ -42,6 +58,7 @@ export class XorLinkedList<T> extends ContainerBase<T> implements ListLike<T> {
     return this._values.length;
   }
 
+  /** O(1): zeroes the link word and pushes the slot onto the free list. */
   private release(id: number): void {
     this._values[id - 1] = undefined;
     this._links[id - 1] = 0;
@@ -49,6 +66,7 @@ export class XorLinkedList<T> extends ContainerBase<T> implements ListLike<T> {
     this._freeHead = id;
   }
 
+  /** O(min(index, n - index)): XOR-walks from the nearer end, carrying the neighbour id. */
   private locate(index: number): Location {
     if (index < this._size / 2) {
       let prev = 0;
@@ -70,6 +88,7 @@ export class XorLinkedList<T> extends ContainerBase<T> implements ListLike<T> {
     return { prev: this._links[id - 1] ^ next, id, next };
   }
 
+  /** O(min(index, n - index)): walks from the nearer end, one XOR per hop. */
   get(index: number): T | undefined {
     assertInteger(index);
     if (index < 0 || index >= this._size) {
@@ -78,6 +97,7 @@ export class XorLinkedList<T> extends ContainerBase<T> implements ListLike<T> {
     return this._values[this.locate(index).id - 1];
   }
 
+  /** O(min(index, n - index)): walks from the nearer end, one XOR per hop. */
   set(index: number, value: T): T {
     assertInteger(index);
     assertDefined(value);
@@ -91,6 +111,7 @@ export class XorLinkedList<T> extends ContainerBase<T> implements ListLike<T> {
     return previous;
   }
 
+  /** O(1) at index 0 or n; otherwise an O(min(index, n - index)) walk, then two link patches. */
   insert(index: number, value: T): void {
     assertInteger(index);
     assertDefined(value);
@@ -124,6 +145,7 @@ export class XorLinkedList<T> extends ContainerBase<T> implements ListLike<T> {
     this.touch();
   }
 
+  /** O(1) at either end; otherwise an O(min(index, n - index)) walk, then two link patches. */
   remove(index: number): T | undefined {
     assertInteger(index);
     if (index < 0 || index >= this._size) {
@@ -147,48 +169,58 @@ export class XorLinkedList<T> extends ContainerBase<T> implements ListLike<T> {
     return value;
   }
 
+  /** O(1) amortized (arena append when the free list is empty). */
   push(value: T): void {
     this.insert(this._size, value);
   }
 
+  /** O(1). */
   pop(): T | undefined {
     return this.remove(this._size - 1);
   }
 
+  /** O(1) amortized. */
   unshift(value: T): void {
     this.insert(0, value);
   }
 
+  /** O(1). */
   shift(): T | undefined {
     return this.remove(0);
   }
 
+  /** O(1). */
   first(): T | undefined {
     return this._size === 0 ? undefined : this._values[this._head - 1];
   }
 
+  /** O(1). */
   last(): T | undefined {
     return this._size === 0 ? undefined : this._values[this._tail - 1];
   }
 
+  /** O(n): copies the list to an array before scanning. */
   indexOf(value: T, from?: number): number {
     checkOptionalInteger(from, "from");
     const values = this.toArray();
     return from === undefined ? values.indexOf(value) : values.indexOf(value, from);
   }
 
+  /** O(n): copies the list to an array before scanning backward. */
   lastIndexOf(value: T, from?: number): number {
     checkOptionalInteger(from, "from");
     const values = this.toArray();
     return from === undefined ? values.lastIndexOf(value) : values.lastIndexOf(value, from);
   }
 
+  /** O(n), not O(k): copies the whole list before slicing. */
   slice(start?: number, end?: number): T[] {
     checkOptionalInteger(start, "start");
     checkOptionalInteger(end, "end");
     return this.toArray().slice(start, end);
   }
 
+  /** O(n): flattens to an array, splices, and rebuilds the arena. */
   splice(start: number, deleteCount?: number, ...items: T[]): T[] {
     assertInteger(start, "start");
     checkOptionalInteger(deleteCount, "deleteCount");
@@ -203,11 +235,13 @@ export class XorLinkedList<T> extends ContainerBase<T> implements ListLike<T> {
     return removed;
   }
 
+  /** O(n): rebuilds the arena from a reversed flat copy. */
   reverse(): this {
     this._resetFrom(this.toArray().reverse());
     return this;
   }
 
+  /** O(n log n) sort of a flat copy, then an O(n) arena rebuild. */
   sort(compare?: Comparator<T>): this {
     if (compare !== undefined) {
       assertComparator(compare);
@@ -216,6 +250,7 @@ export class XorLinkedList<T> extends ContainerBase<T> implements ListLike<T> {
     return this;
   }
 
+  /** O(m) for m incoming values; each is an O(1) amortized push. */
   merge(other: Iterable<T>): this {
     const values = [...other];
     for (const value of values) {
@@ -227,6 +262,7 @@ export class XorLinkedList<T> extends ContainerBase<T> implements ListLike<T> {
     return this;
   }
 
+  /** O(n): both halves are rebuilt from a flat copy. */
   split(index: number): XorLinkedList<T> {
     assertInteger(index);
     const values = this.toArray();
@@ -239,10 +275,12 @@ export class XorLinkedList<T> extends ContainerBase<T> implements ListLike<T> {
     return right;
   }
 
+  /** O(n). */
   serialize(): string {
     return serializeValues("XorLinkedList", this.toArray());
   }
 
+  /** O(n). */
   static deserialize<T>(json: unknown): XorLinkedList<T> {
     const list = new XorLinkedList<T>();
     for (const value of deserializeValues(json, "XorLinkedList")) {
@@ -251,6 +289,7 @@ export class XorLinkedList<T> extends ContainerBase<T> implements ListLike<T> {
     return list;
   }
 
+  /** O(1): drops the arena arrays. */
   clear(): void {
     this._values = [];
     this._links = [];
@@ -262,6 +301,7 @@ export class XorLinkedList<T> extends ContainerBase<T> implements ListLike<T> {
     this.touch();
   }
 
+  /** O(n) XOR walk into a fresh array; stops after n hops even if links are corrupt. */
   toArray(): T[] {
     const values: T[] = [];
     let prev = 0;
@@ -279,10 +319,12 @@ export class XorLinkedList<T> extends ContainerBase<T> implements ListLike<T> {
     return values;
   }
 
+  /** O(n) up front: snapshots the list, then throws ConcurrentModificationError on mutation. */
   [Symbol.iterator](): IterableIterator<T> {
     return this.snapshotIterator(this.toArray());
   }
 
+  /** O(n^2): cycle detection uses Array.includes on every hop; avoid on large lists. */
   validate(): true | string {
     const forward: number[] = [];
     let prev = 0;

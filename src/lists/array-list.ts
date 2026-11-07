@@ -14,6 +14,17 @@ function checkOptionalInteger(value: number | undefined, name: string): void {
   }
 }
 
+/**
+ * Growable list backed by a plain JavaScript array.
+ *
+ * Fast: O(1) get/set by index and O(1) amortized push/pop at the back, which no
+ * linked list in this module can match. Slow: insert/remove/unshift/shift move
+ * every element after the position (O(n) worst case), so prefer ArrayDeque when
+ * both ends must be fast; DoublyLinkedList only wins where it can relink without
+ * walking (the ends, and split). Growth is left to the engine's array policy.
+ * Iteration is over a snapshot and throws ConcurrentModificationError if the
+ * list is mutated mid-iteration.
+ */
 export class ArrayList<T> extends ContainerBase<T> implements ListLike<T> {
   private _items: T[] = [];
 
@@ -21,6 +32,7 @@ export class ArrayList<T> extends ContainerBase<T> implements ListLike<T> {
     return this._size;
   }
 
+  /** O(1): direct array index. */
   get(index: number): T | undefined {
     assertInteger(index);
     if (index < 0 || index >= this._size) {
@@ -29,6 +41,7 @@ export class ArrayList<T> extends ContainerBase<T> implements ListLike<T> {
     return this._items[index];
   }
 
+  /** O(1). */
   set(index: number, value: T): T {
     assertInteger(index);
     assertDefined(value);
@@ -41,6 +54,7 @@ export class ArrayList<T> extends ContainerBase<T> implements ListLike<T> {
     return previous;
   }
 
+  /** O(n - index): splice shifts every element after the position. */
   insert(index: number, value: T): void {
     assertInteger(index);
     assertDefined(value);
@@ -52,6 +66,7 @@ export class ArrayList<T> extends ContainerBase<T> implements ListLike<T> {
     this.touch();
   }
 
+  /** O(n - index): splice shifts every later element down. */
   remove(index: number): T | undefined {
     assertInteger(index);
     if (index < 0 || index >= this._size) {
@@ -63,6 +78,7 @@ export class ArrayList<T> extends ContainerBase<T> implements ListLike<T> {
     return removed;
   }
 
+  /** O(1) amortized (engine-managed array growth). */
   push(value: T): void {
     assertDefined(value);
     this._items.push(value);
@@ -70,6 +86,7 @@ export class ArrayList<T> extends ContainerBase<T> implements ListLike<T> {
     this.touch();
   }
 
+  /** O(1). */
   pop(): T | undefined {
     if (this._size === 0) {
       return undefined;
@@ -80,6 +97,7 @@ export class ArrayList<T> extends ContainerBase<T> implements ListLike<T> {
     return value;
   }
 
+  /** O(n): every element shifts up one slot; ArrayDeque.pushFront is O(1) amortized. */
   unshift(value: T): void {
     assertDefined(value);
     this._items.unshift(value);
@@ -87,6 +105,7 @@ export class ArrayList<T> extends ContainerBase<T> implements ListLike<T> {
     this.touch();
   }
 
+  /** O(n): every element shifts down one slot; ArrayDeque.popFront is O(1) amortized. */
   shift(): T | undefined {
     if (this._size === 0) {
       return undefined;
@@ -97,19 +116,23 @@ export class ArrayList<T> extends ContainerBase<T> implements ListLike<T> {
     return value;
   }
 
+  /** O(1). */
   first(): T | undefined {
     return this._size === 0 ? undefined : this._items[0];
   }
 
+  /** O(1). */
   last(): T | undefined {
     return this._size === 0 ? undefined : this._items[this._size - 1];
   }
 
+  /** O(n) linear scan over the backing array; no copy. */
   indexOf(value: T, from?: number): number {
     checkOptionalInteger(from, "from");
     return this._items.indexOf(value, from);
   }
 
+  /** O(n) reverse linear scan; no copy. */
   lastIndexOf(value: T, from?: number): number {
     checkOptionalInteger(from, "from");
     if (from === undefined) {
@@ -118,12 +141,14 @@ export class ArrayList<T> extends ContainerBase<T> implements ListLike<T> {
     return this._items.lastIndexOf(value, from);
   }
 
+  /** O(k) for k returned elements; returns a fresh array. */
   slice(start?: number, end?: number): T[] {
     checkOptionalInteger(start, "start");
     checkOptionalInteger(end, "end");
     return this._items.slice(start, end);
   }
 
+  /** O(n): in-place engine splice; omitting deleteCount removes everything from start on. */
   splice(start: number, deleteCount?: number, ...items: T[]): T[] {
     assertInteger(start, "start");
     checkOptionalInteger(deleteCount, "deleteCount");
@@ -138,12 +163,14 @@ export class ArrayList<T> extends ContainerBase<T> implements ListLike<T> {
     return removed;
   }
 
+  /** O(n) in place; no allocation. */
   reverse(): this {
     this._items.reverse();
     this.touch();
     return this;
   }
 
+  /** O(n log n): in-place engine sort (stable). */
   sort(compare?: Comparator<T>): this {
     if (compare !== undefined) {
       assertComparator(compare);
@@ -153,6 +180,7 @@ export class ArrayList<T> extends ContainerBase<T> implements ListLike<T> {
     return this;
   }
 
+  /** O(m) for m incoming values; materializes `other` into an array before appending. */
   merge(other: Iterable<T>): this {
     const values = [...other];
     for (const value of values) {
@@ -166,6 +194,7 @@ export class ArrayList<T> extends ContainerBase<T> implements ListLike<T> {
     return this;
   }
 
+  /** O(n - index): the tail is spliced off into the new list; the left half is not copied. */
   split(index: number): ArrayList<T> {
     assertInteger(index);
     if (index < 0 || index > this._size) {
@@ -180,10 +209,12 @@ export class ArrayList<T> extends ContainerBase<T> implements ListLike<T> {
     return right;
   }
 
+  /** O(n). */
   serialize(): string {
     return serializeValues("ArrayList", this.toArray());
   }
 
+  /** O(n). */
   static deserialize<T>(json: unknown): ArrayList<T> {
     const list = new ArrayList<T>();
     for (const value of deserializeValues(json, "ArrayList")) {
@@ -192,20 +223,24 @@ export class ArrayList<T> extends ContainerBase<T> implements ListLike<T> {
     return list;
   }
 
+  /** O(1): drops the backing array. */
   clear(): void {
     this._items = [];
     this._size = 0;
     this.touch();
   }
 
+  /** O(n): returns a fresh copy, never the backing array. */
   toArray(): T[] {
     return this._items.slice();
   }
 
+  /** O(n) up front: snapshots the list, then throws ConcurrentModificationError on mutation. */
   [Symbol.iterator](): IterableIterator<T> {
     return this.snapshotIterator(this.toArray());
   }
 
+  /** O(n). */
   validate(): true | string {
     if (this._items.length !== this._size) {
       return `size ${this._size} does not match backing length ${this._items.length}`;

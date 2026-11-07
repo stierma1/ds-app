@@ -15,6 +15,15 @@ function requireUndirected(graph: Graph, options?: MSTOptions): boolean {
   return directed;
 }
 
+/**
+ * Minimum spanning forest (one tree per component) of an undirected graph; throws
+ * TypeError when the effective direction is directed. Default `algorithm` is "prim".
+ * Prim: lazy binary heap, O(E log V) time, O(E) heap space (every edge is pushed from both
+ * ends and stale entries are skipped on pop). Kruskal: sort O(E log E) = O(E log V) plus
+ * near-linear union-find, O(V+E) space. Same asymptotics; Kruskal's output is weight-sorted
+ * and it does less heap churn on sparse graphs, Prim avoids the full sort and tends to win
+ * on dense graphs. Both call buildAdjacency, so both are at least O(V+E).
+ */
 export function minimumSpanningTree(
   graph: Graph,
   options?: MSTOptions,
@@ -29,6 +38,10 @@ export function minimumSpanningTree(
     : prim(graph, options);
 }
 
+/**
+ * Lazy Prim: O(E log V) time, O(E) heap entries in the worst case because there is no
+ * decrease-key; restarted from each unvisited vertex to cover every component.
+ */
 function prim(graph: Graph, options?: MSTOptions): Edge[] {
   const view = buildAdjacency(graph, false);
   const visited = new Uint8Array(view.vertices.length);
@@ -74,6 +87,10 @@ function prim(graph: Graph, options?: MSTOptions): Edge[] {
   return result;
 }
 
+/**
+ * Kruskal: O(E log E) sort (Array.prototype.sort, stable) dominates; then E union-find
+ * operations at O(alpha(V)) each. Self-loops are skipped without touching the sets.
+ */
 function kruskal(graph: Graph, options?: MSTOptions): Edge[] {
   const view = buildAdjacency(graph, false);
   const edges = [...graph.edges()].map((edge) => {

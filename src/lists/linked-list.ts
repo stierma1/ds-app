@@ -23,6 +23,17 @@ class SinglyNode<T> {
   }
 }
 
+/**
+ * Singly linked list with head and tail pointers; one forward link per node.
+ *
+ * Fast: O(1) push, unshift and shift, and an O(index) split that relinks
+ * without copying. Slow: pop is O(n) because there is no prev pointer to find
+ * the new tail (DoublyLinkedList.pop is O(1)), and get/set/insert/remove walk
+ * from the head only, so the back of the list is the worst case rather than
+ * the best. Prefer ArrayList for random access and DoublyLinkedList whenever
+ * the back is mutated. Iteration is over a snapshot and throws
+ * ConcurrentModificationError if the list is mutated mid-iteration.
+ */
 export class SinglyLinkedList<T> extends ContainerBase<T> implements ListLike<T> {
   private _head: SinglyNode<T> | null = null;
   private _tail: SinglyNode<T> | null = null;
@@ -35,6 +46,7 @@ export class SinglyLinkedList<T> extends ContainerBase<T> implements ListLike<T>
     return node;
   }
 
+  /** O(index): walks forward from the head; there is no backward walk. */
   get(index: number): T | undefined {
     assertInteger(index);
     if (index < 0 || index >= this._size) {
@@ -43,6 +55,7 @@ export class SinglyLinkedList<T> extends ContainerBase<T> implements ListLike<T>
     return this.nodeAt(index)?.value;
   }
 
+  /** O(index): walks forward from the head. */
   set(index: number, value: T): T {
     assertInteger(index);
     assertDefined(value);
@@ -56,6 +69,7 @@ export class SinglyLinkedList<T> extends ContainerBase<T> implements ListLike<T>
     return previous;
   }
 
+  /** O(1) at index 0 or n (unshift/push); otherwise an O(index) walk, then an O(1) relink. */
   insert(index: number, value: T): void {
     assertInteger(index);
     assertDefined(value);
@@ -78,6 +92,7 @@ export class SinglyLinkedList<T> extends ContainerBase<T> implements ListLike<T>
     this.touch();
   }
 
+  /** O(1) at index 0; O(n) at index n - 1 (delegates to pop); otherwise an O(index) walk. */
   remove(index: number): T | undefined {
     assertInteger(index);
     if (index < 0 || index >= this._size) {
@@ -97,6 +112,7 @@ export class SinglyLinkedList<T> extends ContainerBase<T> implements ListLike<T>
     return node.value;
   }
 
+  /** O(1) via the tail pointer. */
   push(value: T): void {
     assertDefined(value);
     const node = new SinglyNode(value);
@@ -111,6 +127,7 @@ export class SinglyLinkedList<T> extends ContainerBase<T> implements ListLike<T>
     this.touch();
   }
 
+  /** O(n): no prev pointer, so it walks from the head to find the new tail. */
   pop(): T | undefined {
     if (this._size === 0) {
       return undefined;
@@ -132,6 +149,7 @@ export class SinglyLinkedList<T> extends ContainerBase<T> implements ListLike<T>
     return value;
   }
 
+  /** O(1). */
   unshift(value: T): void {
     assertDefined(value);
     const node = new SinglyNode(value);
@@ -144,6 +162,7 @@ export class SinglyLinkedList<T> extends ContainerBase<T> implements ListLike<T>
     this.touch();
   }
 
+  /** O(1). */
   shift(): T | undefined {
     if (this._size === 0) {
       return undefined;
@@ -158,14 +177,17 @@ export class SinglyLinkedList<T> extends ContainerBase<T> implements ListLike<T>
     return node.value;
   }
 
+  /** O(1). */
   first(): T | undefined {
     return this._head?.value;
   }
 
+  /** O(1) via the tail pointer. */
   last(): T | undefined {
     return this._tail?.value;
   }
 
+  /** O(n) forward walk; no allocation. */
   indexOf(value: T, from?: number): number {
     checkOptionalInteger(from, "from");
     let index = 0;
@@ -181,18 +203,21 @@ export class SinglyLinkedList<T> extends ContainerBase<T> implements ListLike<T>
     return -1;
   }
 
+  /** O(n): copies the list to an array, then scans backward. */
   lastIndexOf(value: T, from?: number): number {
     checkOptionalInteger(from, "from");
     const items = this.toArray();
     return from === undefined ? items.lastIndexOf(value) : items.lastIndexOf(value, from);
   }
 
+  /** O(n), not O(k): copies the whole list before slicing. */
   slice(start?: number, end?: number): T[] {
     checkOptionalInteger(start, "start");
     checkOptionalInteger(end, "end");
     return this.toArray().slice(start, end);
   }
 
+  /** O(n): flattens to an array, splices, and rebuilds every node. */
   splice(start: number, deleteCount?: number, ...items: T[]): T[] {
     assertInteger(start, "start");
     checkOptionalInteger(deleteCount, "deleteCount");
@@ -207,6 +232,7 @@ export class SinglyLinkedList<T> extends ContainerBase<T> implements ListLike<T>
     return removed;
   }
 
+  /** O(n) in place: flips next pointers without allocating. */
   reverse(): this {
     let previous: SinglyNode<T> | null = null;
     let node = this._head;
@@ -222,6 +248,7 @@ export class SinglyLinkedList<T> extends ContainerBase<T> implements ListLike<T>
     return this;
   }
 
+  /** O(n log n) sort of a flat copy, then rebuilds every node. */
   sort(compare?: Comparator<T>): this {
     if (compare !== undefined) {
       assertComparator(compare);
@@ -231,6 +258,7 @@ export class SinglyLinkedList<T> extends ContainerBase<T> implements ListLike<T>
     return this;
   }
 
+  /** O(m) for m incoming values; each is an O(1) push. */
   merge(other: Iterable<T>): this {
     const values = [...other];
     for (const value of values) {
@@ -242,6 +270,7 @@ export class SinglyLinkedList<T> extends ContainerBase<T> implements ListLike<T>
     return this;
   }
 
+  /** O(index): walks to the split point and relinks; the right half reuses existing nodes. */
   split(index: number): SinglyLinkedList<T> {
     assertInteger(index);
     if (index < 0 || index > this._size) {
@@ -269,10 +298,12 @@ export class SinglyLinkedList<T> extends ContainerBase<T> implements ListLike<T>
     return right;
   }
 
+  /** O(n). */
   serialize(): string {
     return serializeValues("SinglyLinkedList", this.toArray());
   }
 
+  /** O(n). */
   static deserialize<T>(json: unknown): SinglyLinkedList<T> {
     const list = new SinglyLinkedList<T>();
     for (const value of deserializeValues(json, "SinglyLinkedList")) {
@@ -281,6 +312,7 @@ export class SinglyLinkedList<T> extends ContainerBase<T> implements ListLike<T>
     return list;
   }
 
+  /** O(1): drops the chain. */
   clear(): void {
     this._head = null;
     this._tail = null;
@@ -288,6 +320,7 @@ export class SinglyLinkedList<T> extends ContainerBase<T> implements ListLike<T>
     this.touch();
   }
 
+  /** O(n) walk into a fresh array. */
   toArray(): T[] {
     const values: T[] = [];
     let node = this._head;
@@ -298,10 +331,12 @@ export class SinglyLinkedList<T> extends ContainerBase<T> implements ListLike<T>
     return values;
   }
 
+  /** O(n) up front: snapshots the list, then throws ConcurrentModificationError on mutation. */
   [Symbol.iterator](): IterableIterator<T> {
     return this.snapshotIterator(this.toArray());
   }
 
+  /** O(n); allocates a Set of visited nodes to detect cycles. */
   validate(): true | string {
     let count = 0;
     let node = this._head;
@@ -366,6 +401,19 @@ class DoublyNode<T> {
   }
 }
 
+/**
+ * Circular doubly linked list around a sentinel node; two links per node.
+ *
+ * Fast: O(1) push/pop/unshift/shift at both ends (pop is O(n) in
+ * SinglyLinkedList), and by-index get/insert/remove/split that walk only
+ * O(min(index, n - index)) steps because nodeAt starts from the nearer end;
+ * split and reverse relink pointers without copying anything. Slow: indexOf,
+ * lastIndexOf, slice, splice and sort flatten the list to an array first, and
+ * every by-index access is a walk, so prefer ArrayList/ArrayDeque for random
+ * access. Costs one extra pointer per node versus SinglyLinkedList.
+ * Iteration is over a snapshot and throws ConcurrentModificationError if the
+ * list is mutated mid-iteration.
+ */
 export class DoublyLinkedList<T> extends ContainerBase<T> implements ListLike<T> {
   private readonly _head: DoublyNode<T>;
 
@@ -380,6 +428,7 @@ export class DoublyLinkedList<T> extends ContainerBase<T> implements ListLike<T>
     return this._head;
   }
 
+  /** Walks from the head or the tail, whichever is nearer: O(min(index, n - index)). */
   private nodeAt(index: number): DoublyNode<T> {
     if (index < this._size / 2) {
       let node = this._head.next;
@@ -414,6 +463,7 @@ export class DoublyLinkedList<T> extends ContainerBase<T> implements ListLike<T>
     return value;
   }
 
+  /** O(min(index, n - index)): walks from the nearer end. */
   get(index: number): T | undefined {
     assertInteger(index);
     if (index < 0 || index >= this._size) {
@@ -422,6 +472,7 @@ export class DoublyLinkedList<T> extends ContainerBase<T> implements ListLike<T>
     return this.nodeAt(index).value;
   }
 
+  /** O(min(index, n - index)): walks from the nearer end. */
   set(index: number, value: T): T {
     assertInteger(index);
     assertDefined(value);
@@ -435,6 +486,7 @@ export class DoublyLinkedList<T> extends ContainerBase<T> implements ListLike<T>
     return previous;
   }
 
+  /** O(1) at index 0 or n; otherwise an O(min(index, n - index)) walk, then an O(1) relink. */
   insert(index: number, value: T): void {
     assertInteger(index);
     assertDefined(value);
@@ -447,6 +499,7 @@ export class DoublyLinkedList<T> extends ContainerBase<T> implements ListLike<T>
     this.touch();
   }
 
+  /** O(1) at either end; otherwise an O(min(index, n - index)) walk, then an O(1) unlink. */
   remove(index: number): T | undefined {
     assertInteger(index);
     if (index < 0 || index >= this._size) {
@@ -458,6 +511,7 @@ export class DoublyLinkedList<T> extends ContainerBase<T> implements ListLike<T>
     return value;
   }
 
+  /** O(1): links in before the sentinel. */
   push(value: T): void {
     assertDefined(value);
     this.insertBefore(this._head, value);
@@ -465,6 +519,7 @@ export class DoublyLinkedList<T> extends ContainerBase<T> implements ListLike<T>
     this.touch();
   }
 
+  /** O(1) via the sentinel's prev link (SinglyLinkedList.pop is O(n)). */
   pop(): T | undefined {
     if (this._size === 0) {
       return undefined;
@@ -475,6 +530,7 @@ export class DoublyLinkedList<T> extends ContainerBase<T> implements ListLike<T>
     return value;
   }
 
+  /** O(1). */
   unshift(value: T): void {
     assertDefined(value);
     this.insertBefore(this._head.next, value);
@@ -482,6 +538,7 @@ export class DoublyLinkedList<T> extends ContainerBase<T> implements ListLike<T>
     this.touch();
   }
 
+  /** O(1). */
   shift(): T | undefined {
     if (this._size === 0) {
       return undefined;
@@ -492,32 +549,38 @@ export class DoublyLinkedList<T> extends ContainerBase<T> implements ListLike<T>
     return value;
   }
 
+  /** O(1). */
   first(): T | undefined {
     return this._size === 0 ? undefined : this._head.next.value;
   }
 
+  /** O(1). */
   last(): T | undefined {
     return this._size === 0 ? undefined : this._head.prev.value;
   }
 
+  /** O(n): copies the list to an array before scanning. */
   indexOf(value: T, from?: number): number {
     checkOptionalInteger(from, "from");
     const values = this.toArray();
     return from === undefined ? values.indexOf(value) : values.indexOf(value, from);
   }
 
+  /** O(n): copies the list to an array before scanning backward. */
   lastIndexOf(value: T, from?: number): number {
     checkOptionalInteger(from, "from");
     const values = this.toArray();
     return from === undefined ? values.lastIndexOf(value) : values.lastIndexOf(value, from);
   }
 
+  /** O(n), not O(k): copies the whole list before slicing. */
   slice(start?: number, end?: number): T[] {
     checkOptionalInteger(start, "start");
     checkOptionalInteger(end, "end");
     return this.toArray().slice(start, end);
   }
 
+  /** O(n): flattens to an array, splices, and rebuilds every node. */
   splice(start: number, deleteCount?: number, ...items: T[]): T[] {
     assertInteger(start, "start");
     checkOptionalInteger(deleteCount, "deleteCount");
@@ -532,6 +595,7 @@ export class DoublyLinkedList<T> extends ContainerBase<T> implements ListLike<T>
     return removed;
   }
 
+  /** O(n) in place: swaps prev/next on every node, no allocation. */
   reverse(): this {
     let node: DoublyNode<T> = this._head;
     do {
@@ -545,6 +609,7 @@ export class DoublyLinkedList<T> extends ContainerBase<T> implements ListLike<T>
     return this;
   }
 
+  /** O(n log n) sort of a flat copy, then rebuilds every node. */
   sort(compare?: Comparator<T>): this {
     if (compare !== undefined) {
       assertComparator(compare);
@@ -554,6 +619,7 @@ export class DoublyLinkedList<T> extends ContainerBase<T> implements ListLike<T>
     return this;
   }
 
+  /** O(m) for m incoming values; each is an O(1) push. */
   merge(other: Iterable<T>): this {
     const values = [...other];
     for (const value of values) {
@@ -565,6 +631,11 @@ export class DoublyLinkedList<T> extends ContainerBase<T> implements ListLike<T>
     return this;
   }
 
+  /**
+   * O(min(index, n - index)): walks to the split node, then relinks the two
+   * sentinels; no node is copied. O(1) at index 0 or n. CircularList.split
+   * overrides this with an O(n) rebuild.
+   */
   split(index: number): DoublyLinkedList<T> {
     assertInteger(index);
     if (index < 0 || index > this._size) {
@@ -602,10 +673,12 @@ export class DoublyLinkedList<T> extends ContainerBase<T> implements ListLike<T>
     return right;
   }
 
+  /** O(n). */
   serialize(): string {
     return serializeValues("DoublyLinkedList", this.toArray());
   }
 
+  /** O(n). */
   static deserialize<T>(json: unknown): DoublyLinkedList<T> {
     const list = new DoublyLinkedList<T>();
     for (const value of deserializeValues(json, "DoublyLinkedList")) {
@@ -614,6 +687,7 @@ export class DoublyLinkedList<T> extends ContainerBase<T> implements ListLike<T>
     return list;
   }
 
+  /** O(1): resets the sentinel; detached nodes are left to the garbage collector. */
   clear(): void {
     this._head.next = this._head;
     this._head.prev = this._head;
@@ -621,6 +695,7 @@ export class DoublyLinkedList<T> extends ContainerBase<T> implements ListLike<T>
     this.touch();
   }
 
+  /** O(n) walk into a fresh array. */
   toArray(): T[] {
     const values: T[] = [];
     for (let node = this._head.next; node !== this._head; node = node.next) {
@@ -629,10 +704,12 @@ export class DoublyLinkedList<T> extends ContainerBase<T> implements ListLike<T>
     return values;
   }
 
+  /** O(n) up front: snapshots the list, then throws ConcurrentModificationError on mutation. */
   [Symbol.iterator](): IterableIterator<T> {
     return this.snapshotIterator(this.toArray());
   }
 
+  /** O(n): walks the ring forward and backward. */
   validate(): true | string {
     let count = 0;
     let node = this._head.next;
@@ -685,11 +762,20 @@ export class DoublyLinkedList<T> extends ContainerBase<T> implements ListLike<T>
   }
 }
 
+/**
+ * DoublyLinkedList plus a rotate operation; same node layout and bounds as the
+ * parent with one exception: split flattens the list to an array and rebuilds
+ * BOTH halves node by node (O(n) with a full allocation), whereas
+ * DoublyLinkedList.split relinks in O(min(index, n - index)). Use the parent
+ * when you split often and rotate rarely.
+ */
 export class CircularList<T> extends DoublyLinkedList<T> {
+  /** O(n). */
   override serialize(): string {
     return serializeValues("CircularList", this.toArray());
   }
 
+  /** O(n). */
   static override deserialize<T>(json: unknown): CircularList<T> {
     const list = new CircularList<T>();
     for (const value of deserializeValues(json, "CircularList")) {
@@ -698,6 +784,7 @@ export class CircularList<T> extends DoublyLinkedList<T> {
     return list;
   }
 
+  /** O(n): both halves are rebuilt from a flat copy (the parent relinks in place). */
   override split(index: number): CircularList<T> {
     assertInteger(index);
     const values = this.toArray();
@@ -710,6 +797,10 @@ export class CircularList<T> extends DoublyLinkedList<T> {
     return right;
   }
 
+  /**
+   * O(n - (steps mod n)): walks forward from the head to the split node, then
+   * relinks four pointers; no allocation. A rotation of 0 mod n returns early.
+   */
   rotate(steps: number): this {
     assertInteger(steps, "steps");
     const n = this._size;

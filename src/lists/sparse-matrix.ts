@@ -23,6 +23,20 @@ function assertDimension(value: number | undefined, name: string): void {
   }
 }
 
+/**
+ * Dictionary-of-keys sparse matrix: one Map from the string "row:column" to
+ * the value. Only explicitly set cells are stored (including explicit zeros,
+ * which still count toward size and cost in every scan). nnz below is the
+ * number of stored entries.
+ *
+ * Fast: get/set/has/delete are O(1) expected hash operations on a freshly built
+ * key string. Slow: there is no per-row or per-column index, so row(i) and
+ * column(j) each scan and parse every stored entry (O(nnz)) and then sort the
+ * matches; a row is no cheaper to read than a column. entries(), transpose()
+ * and serialize() are O(nnz log nnz) because they sort. Dimensions may be left
+ * undefined, in which case multiply derives them with extra O(nnz log nnz)
+ * passes over entries().
+ */
 export class SparseMatrix implements Serializable {
   protected _rows: number | undefined;
   protected _cols: number | undefined;
@@ -38,14 +52,17 @@ export class SparseMatrix implements Serializable {
     this._cols = cols;
   }
 
+  /** O(1). */
   get rows(): number | undefined {
     return this._rows;
   }
 
+  /** O(1). */
   get cols(): number | undefined {
     return this._cols;
   }
 
+  /** O(1): number of stored entries (nnz), explicit zeros included. */
   get size(): number {
     return this._data.size;
   }
@@ -64,6 +81,7 @@ export class SparseMatrix implements Serializable {
     }
   }
 
+  /** O(1) expected Map set; storing 0 keeps an entry rather than deleting it. */
   set(row: number, column: number, value: number): this {
     this.checkCell(row, column);
     if (typeof value !== "number" || Number.isNaN(value)) {
@@ -73,21 +91,25 @@ export class SparseMatrix implements Serializable {
     return this;
   }
 
+  /** O(1) expected Map lookup; undefined means the cell was never set (not 0). */
   get(row: number, column: number): number | undefined {
     this.checkCell(row, column);
     return this._data.get(key(row, column));
   }
 
+  /** O(1) expected. */
   has(row: number, column: number): boolean {
     this.checkCell(row, column);
     return this._data.has(key(row, column));
   }
 
+  /** O(1) expected. */
   delete(row: number, column: number): boolean {
     this.checkCell(row, column);
     return this._data.delete(key(row, column));
   }
 
+  /** O(nnz + k log k): scans and parses every stored key, then sorts the k matches by column. */
   row(index: number): Array<[number, number]> {
     assertInteger(index, "row");
     if (index < 0 || (this._rows !== undefined && index >= this._rows)) {
@@ -104,6 +126,7 @@ export class SparseMatrix implements Serializable {
     return entries;
   }
 
+  /** O(nnz + k log k): the same full scan as row(); columns are not indexed separately. */
   column(index: number): Array<[number, number]> {
     assertInteger(index, "column");
     if (index < 0 || (this._cols !== undefined && index >= this._cols)) {
@@ -120,6 +143,7 @@ export class SparseMatrix implements Serializable {
     return entries;
   }
 
+  /** O(nnz log nnz): parses every key into a fresh array and sorts it in row-major order. */
   entries(): SparseEntry[] {
     const entries: SparseEntry[] = [];
     for (const [storedKey, value] of this._data) {
@@ -130,10 +154,12 @@ export class SparseMatrix implements Serializable {
     return entries;
   }
 
+  /** O(nnz). */
   clear(): void {
     this._data.clear();
   }
 
+  /** O(nnz log nnz) via entries(). */
   serialize(): string {
     return serializeRecord(this.serializationType(), {
       rows: this._rows,
@@ -142,6 +168,7 @@ export class SparseMatrix implements Serializable {
     });
   }
 
+  /** O(nnz) expected: one set() per entry. */
   static deserialize<T extends SparseMatrix>(
     this: new (rows?: number, cols?: number) => T,
     json: unknown,
@@ -174,6 +201,7 @@ export class SparseMatrix implements Serializable {
     return "SparseMatrix";
   }
 
+  /** O(nnz log nnz): sorts via entries(), then re-inserts each cell into a new matrix. */
   transpose(): this {
     const rows = this._rows;
     const cols = this._cols;
@@ -184,6 +212,13 @@ export class SparseMatrix implements Serializable {
     return result;
   }
 
+  /**
+   * O(nnz_A + nnz_B + sum over k of a_k * b_k) hash operations, where a_k is the
+   * number of entries in column k of this matrix and b_k the number in row k of
+   * other, plus O(nnz log nnz) sorts from entries() (and up to four more when
+   * the dimensions are undefined). Builds a row index of `other` first;
+   * cancellations leave explicit zeros in the result.
+   */
   multiply(other: SparseMatrix): this {
     const rows = this.dimensionRows();
     const shared = this.dimensionCols();
@@ -215,6 +250,7 @@ export class SparseMatrix implements Serializable {
     return result;
   }
 
+  /** O(nnz). */
   validate(): true | string {
     for (const [storedKey, value] of this._data) {
       const parts = storedKey.split(":");
@@ -247,6 +283,7 @@ export class SparseMatrix implements Serializable {
     return new Constructor(rows, cols);
   }
 
+  /** O(1) when rows was given; otherwise O(nnz log nnz) via entries(). */
   protected dimensionRows(): number {
     if (this._rows !== undefined) {
       return this._rows;
@@ -258,6 +295,7 @@ export class SparseMatrix implements Serializable {
     return max + 1;
   }
 
+  /** O(1) when cols was given; otherwise O(nnz log nnz) via entries(). */
   protected dimensionCols(): number {
     if (this._cols !== undefined) {
       return this._cols;
@@ -270,12 +308,21 @@ export class SparseMatrix implements Serializable {
   }
 }
 
+/**
+ * SparseMatrix under a different serialization tag. Despite the name it has no
+ * list-of-lists layout: row and column access are the same O(nnz) scans.
+ */
 export class GeneralizedList extends SparseMatrix {
   protected override serializationType(): string {
     return "GeneralizedList";
   }
 }
 
+/**
+ * SparseMatrix under a different serialization tag. Despite the name there are
+ * no per-row/per-column linked chains: row(i) and column(j) remain O(nnz) full
+ * scans rather than O(k) walks.
+ */
 export class OrthogonalList extends SparseMatrix {
   protected override serializationType(): string {
     return "OrthogonalList";

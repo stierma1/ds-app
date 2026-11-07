@@ -12,6 +12,15 @@ import {
   orientedEdges,
 } from "./shared.ts";
 
+/**
+ * Single-source shortest distances with a binary MinHeap and lazy deletion (no
+ * decrease-key): O((V+E) log V) time, O(V+E) space (the heap can hold one entry per
+ * relaxation, up to E). Precondition: non-negative weights, enforced by an up-front O(E)
+ * scan (which also allocates an O(E) oriented-edge array and calls the weight selector a
+ * second time per edge) that throws RangeError. Returns a Map over ALL V vertices with
+ * Infinity for unreachable ones; there is no early exit for a target (use aStar with a zero
+ * heuristic for that). Use bellmanFord when weights can be negative.
+ */
 export function dijkstra(
   graph: Graph,
   source: Vertex,
@@ -56,6 +65,14 @@ export function dijkstra(
   return result;
 }
 
+/**
+ * Single-source shortest distances allowing negative weights. O(V*E) worst case, O(V+E)
+ * space; stops early once a full relaxation round changes nothing, so graphs whose shortest
+ * paths use at most k edges finish in O(k*E). Weights are evaluated once per oriented edge
+ * into a Float64Array before the rounds. Throws RangeError on a negative cycle reachable
+ * from `source` (one extra O(E) pass). Roughly V/log V slower than dijkstra when weights
+ * are non-negative.
+ */
 export function bellmanFord(
   graph: Graph,
   source: Vertex,
@@ -101,6 +118,14 @@ export function bellmanFord(
   return result;
 }
 
+/**
+ * All-pairs shortest distances. O(V^3) time, O(V^2) space, returned as a V x V number
+ * matrix indexed by the order of graph.vertices() (not a Map). Rows whose intermediate
+ * distance is Infinity are skipped, which helps on sparse or disconnected inputs but does
+ * not change the cubic bound. Negative weights are allowed but negative cycles are NOT
+ * detected (the diagonal just goes negative). For a single source, dijkstra is
+ * O((V+E) log V); V runs of it beat this whenever E << V^2.
+ */
 export function floydWarshall(
   graph: Graph,
   options?: GraphAlgorithmOptions,
@@ -138,6 +163,15 @@ export function floydWarshall(
   return distances;
 }
 
+/**
+ * Point-to-point shortest path ordered by f = g + heuristic, with a binary MinHeap, lazy
+ * deletion and a closed set. Worst case equals dijkstra, O((V+E) log V) time and O(V+E)
+ * space, but stops as soon as `target` is popped, so a good heuristic visits far fewer
+ * vertices. Preconditions: non-negative weights (up-front O(E) check, RangeError) and a
+ * finite non-negative heuristic; it must be consistent for the closed set to be safe, since
+ * a closed vertex is never reopened. The heuristic is called once per heap push (up to E
+ * times). Returns {Infinity, []} when unreachable; path reconstruction is O(path length).
+ */
 export function aStar(
   graph: Graph,
   source: Vertex,

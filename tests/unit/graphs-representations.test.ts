@@ -216,3 +216,31 @@ test("invalid arguments are rejected", () => {
   assert.throws(() => list.neighbors("missing"), RangeError);
   assert.throws(() => list.degree("missing"), RangeError);
 });
+
+test("CSR hasEdge and getEdge binary search sorted rows", () => {
+  const source = new AdjacencyList<unknown, { label: string }>(true);
+  const fanOut = 1000;
+  // Insert targets in descending order so insertion order differs from index order.
+  for (let i = fanOut; i >= 1; i--) {
+    source.addEdge("hub", `v${i}`, i, { label: `e${i}` });
+  }
+  const csr = CSR.from(source);
+  assert.equal(csr.validate(), true);
+  for (let i = 1; i <= fanOut; i++) {
+    assert.equal(csr.hasEdge("hub", `v${i}`), true, `v${i}`);
+  }
+  assert.equal(csr.hasEdge("hub", "hub"), false);
+  assert.equal(csr.hasEdge("hub", "missing"), false);
+  assert.equal(csr.hasEdge("v1", "hub"), false);
+  assert.equal(csr.getEdge("hub", "v1")?.data?.label, "e1");
+  assert.equal(csr.getEdge("hub", `v${fanOut}`)?.data?.label, `e${fanOut}`);
+  assert.equal(csr.getEdge("hub", "v500")?.data?.label, "e500");
+  assert.equal(csr.getEdge("hub", "v500")?.weight, 500);
+  assert.equal(csr.outDegree("hub"), fanOut);
+  // neighbors are reported in vertex-index order, which is the source's vertices() order.
+  const indexOrder = [...source.vertices()].filter((v) => v !== "hub");
+  assert.deepEqual([...csr.neighbors("hub")], indexOrder);
+  const transpose = csr.transpose();
+  assert.equal(transpose.validate(), true);
+  assert.equal(transpose.getEdge("v500", "hub")?.data?.label, "e500");
+});

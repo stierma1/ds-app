@@ -9,6 +9,19 @@ interface RobinEntry<K, V> {
   hash: number;
 }
 
+/**
+ * Linear-probing table with Robin Hood displacement: on insert, an entry that has probed further
+ * than the resident it meets takes the slot and the resident moves on. That equalizes probe
+ * distances, so the maximum and variance of probe lengths stay small even near the load cap, and
+ * misses terminate early (as soon as a resident is closer to home than the probe has travelled).
+ * Deletion is backward-shift: following entries slide one slot toward home, so there are no
+ * tombstones, no purge rehashes and no lookup degradation after heavy deleting; this is the
+ * open-addressing table to pick for mixed insert/delete workloads. Costs: one entry object per key
+ * (more memory than OpenAddressingBase's parallel arrays), and a fresh insert hashes the key twice
+ * (once to look it up, once to place it).
+ * loadFactor must be < 1 (default 0.75); doubles with an O(n + capacity) rehash that re-hashes
+ * every key. Expected O(1) per operation, worst O(capacity). Iteration is a snapshot.
+ */
 export class RobinHood<K, V> extends HashTableBase<K, V> {
   private _slots: Array<RobinEntry<K, V> | null>;
 
@@ -18,6 +31,10 @@ export class RobinHood<K, V> extends HashTableBase<K, V> {
     this._slots = new Array(this._capacity).fill(null);
   }
 
+  /**
+   * Expected O(1): one lookup probe plus a placement probe that may shift a run of poorer entries
+   * forward. O(n + capacity) when the insert exceeds capacity * loadFactor and the table doubles.
+   */
   set(key: K, value: V): this {
     this.assertStorable(key, value);
     const existing = this.findIndex(key);
@@ -35,15 +52,24 @@ export class RobinHood<K, V> extends HashTableBase<K, V> {
     return this;
   }
 
+  /**
+   * Expected O(1); stops early at an empty slot or at a resident closer to its home than the probe
+   * has travelled. Worst O(capacity).
+   */
   get(key: K): V | undefined {
     const index = this.findIndex(key);
     return index < 0 ? undefined : this._slots[index]!.value;
   }
 
+  /** Same probe as get(), without reading the value. */
   has(key: K): boolean {
     return this.findIndex(key) >= 0;
   }
 
+  /**
+   * Expected O(1): backward-shifts the rest of the cluster by one slot (O(cluster length)); no
+   * tombstone is left behind and capacity never shrinks.
+   */
   delete(key: K): boolean {
     const index = this.findIndex(key);
     if (index < 0) {
@@ -55,17 +81,23 @@ export class RobinHood<K, V> extends HashTableBase<K, V> {
     return true;
   }
 
+  /** O(capacity): reallocates the slot array. */
   clear(): void {
     this._slots = new Array(this._capacity).fill(null);
     this._size = 0;
     this.touch();
   }
 
+  /**
+   * `capacity` is an entry count: one O(n + newCapacity) rehash if that many entries would exceed
+   * the load factor, otherwise a no-op. Never shrinks.
+   */
   reserve(capacity: number): void {
     this.assertCapacity(capacity);
     this.ensureCapacityForEntries(capacity);
   }
 
+  /** O(capacity) plus a re-hash of every key; diagnostic only. */
   validate(): true | string {
     if (this._slots.length !== this._capacity) {
       return "slot array length does not match capacity";
@@ -129,6 +161,7 @@ export class RobinHood<K, V> extends HashTableBase<K, V> {
     return "RobinHood";
   }
 
+  /** O(n + capacity): re-hashes and re-places every entry. */
   protected rehash(capacity: number): void {
     const entries = this.collectEntries();
     this._capacity = nextPowerOfTwo(capacity);
@@ -141,6 +174,7 @@ export class RobinHood<K, V> extends HashTableBase<K, V> {
     this.touch();
   }
 
+  /** O(n) expected re-insertion via set(), then an O(capacity) validate. */
   static deserialize<K, V>(
     json: unknown,
     options: HashOptions<K> = {},
@@ -210,6 +244,10 @@ export class RobinHood<K, V> extends HashTableBase<K, V> {
     throw new RangeError("hash table is full");
   }
 
+  /**
+   * Backward-shift deletion: moves each following displaced entry one slot closer to home until a
+   * slot that is empty or already at home is reached, so the cluster stays contiguous.
+   */
   private removeAt(index: number): void {
     const mask = this._capacity - 1;
     this._slots[index] = null;

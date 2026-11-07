@@ -13,6 +13,19 @@ interface VertexRecord<V, E> {
   in: Map<Vertex, Edge<E>>;
 }
 
+/**
+ * Mutable adjacency list: Map<Vertex, {out: Map<Vertex, Edge>, in: Map<Vertex, Edge>}>.
+ *
+ * The general-purpose default. addVertex, addEdge, removeEdge, hasEdge, getEdge and all
+ * three degree queries are O(1) expected because adjacency is a Map, not a list to scan
+ * (CSR binary-searches, EdgeList scans). neighbors()/incidentEdges() are O(deg) snapshots.
+ * Memory is O(V+E) but heavy: two Maps per vertex and, for undirected graphs, four Map
+ * entries per edge (out+in on both ends) all pointing at one shared Edge object.
+ * Versus siblings: AdjacencyMatrix wins only when E ~ V^2 (dense); CSR is 3-5x smaller and
+ * cache-friendlier for read-only algorithm workloads; EdgeList is O(E) for everything.
+ * Every iterable is an eager O(k) snapshot, so mutation during iteration is safe but
+ * neighbors() inside a hot loop allocates each call.
+ */
 export class AdjacencyList<V = unknown, E = unknown>
   implements Graph<V, E>
 {
@@ -28,14 +41,17 @@ export class AdjacencyList<V = unknown, E = unknown>
     return this._directed;
   }
 
+  /** O(1). */
   get order(): number {
     return this._vertices.size;
   }
 
+  /** O(1): maintained counter (each undirected edge counts once). */
   get size(): number {
     return this._size;
   }
 
+  /** O(1) expected; allocates two empty Maps per new vertex. */
   addVertex(vertex: Vertex, data?: V): boolean {
     assertVertex(vertex);
     if (this._vertices.has(vertex)) {
@@ -49,6 +65,7 @@ export class AdjacencyList<V = unknown, E = unknown>
     return true;
   }
 
+  /** O(deg): snapshots the incident edges, then removes each with O(1) removeEdge. */
   removeVertex(vertex: Vertex): boolean {
     if (!this._vertices.has(vertex)) {
       return false;
@@ -60,10 +77,15 @@ export class AdjacencyList<V = unknown, E = unknown>
     return true;
   }
 
+  /** O(1) expected. */
   hasVertex(vertex: Vertex): boolean {
     return this._vertices.has(vertex);
   }
 
+  /**
+   * O(1) expected; auto-creates missing endpoints. Duplicates return false before the Edge is
+   * allocated. Undirected edges write four Map entries sharing one Edge object.
+   */
   addEdge(
     from: Vertex,
     to: Vertex,
@@ -90,6 +112,7 @@ export class AdjacencyList<V = unknown, E = unknown>
     return true;
   }
 
+  /** O(1) expected: up to four Map deletes, no scanning or compaction. */
   removeEdge(from: Vertex, to: Vertex): boolean {
     const source = this._vertices.get(from);
     const target = this._vertices.get(to);
@@ -111,14 +134,17 @@ export class AdjacencyList<V = unknown, E = unknown>
     return true;
   }
 
+  /** O(1) expected (two Map lookups); the headline advantage over CSR/EdgeList's O(deg)/O(E). */
   hasEdge(from: Vertex, to: Vertex): boolean {
     return this._vertices.get(from)?.out.has(to) ?? false;
   }
 
+  /** O(1) expected; returns the shared Edge object, not a copy. */
   getEdge(from: Vertex, to: Vertex): Edge<E> | undefined {
     return this._vertices.get(from)?.out.get(to);
   }
 
+  /** O(deg): copies the out-Map keys into a fresh array (snapshot). A self-loop appears once. */
   neighbors(vertex: Vertex): Iterable<Vertex> {
     const record = this._vertices.get(vertex);
     if (record === undefined) {
@@ -127,6 +153,7 @@ export class AdjacencyList<V = unknown, E = unknown>
     return snapshotIterator(record.out.keys());
   }
 
+  /** Undirected: O(deg) copy. Directed: O(in+out) copy plus a Set pass to dedupe self-loops. */
   incidentEdges(vertex: Vertex): Iterable<Edge<E>> {
     const record = this._vertices.get(vertex);
     if (record === undefined) {
@@ -141,10 +168,15 @@ export class AdjacencyList<V = unknown, E = unknown>
     ]) as Edge<E>[]);
   }
 
+  /** O(V) snapshot copy in insertion order. */
   vertices(): Iterable<Vertex> {
     return snapshotIterator(this._vertices.keys());
   }
 
+  /**
+   * O(V+E): walks every out-Map, then dedupes through a Set (undirected graphs scan 2E
+   * entries). Called by every algorithm via buildAdjacency, and by transpose/clone/serialize.
+   */
   edges(): Iterable<Edge<E>> {
     const result: Edge<E>[] = [];
     for (const record of this._vertices.values()) {
@@ -155,6 +187,7 @@ export class AdjacencyList<V = unknown, E = unknown>
     return snapshotIterator(uniqueEdges(result) as Edge<E>[]);
   }
 
+  /** O(1): Map sizes; an undirected self-loop counts twice. */
   degree(vertex: Vertex): number {
     const record = this._vertices.get(vertex);
     if (record === undefined) {
@@ -166,6 +199,7 @@ export class AdjacencyList<V = unknown, E = unknown>
     return record.out.size + (record.out.has(vertex) ? 1 : 0);
   }
 
+  /** O(1). */
   inDegree(vertex: Vertex): number {
     const record = this._vertices.get(vertex);
     if (record === undefined) {
@@ -174,6 +208,7 @@ export class AdjacencyList<V = unknown, E = unknown>
     return this._directed ? record.in.size : this.degree(vertex);
   }
 
+  /** O(1). */
   outDegree(vertex: Vertex): number {
     const record = this._vertices.get(vertex);
     if (record === undefined) {
@@ -182,6 +217,7 @@ export class AdjacencyList<V = unknown, E = unknown>
     return this._directed ? record.out.size : this.degree(vertex);
   }
 
+  /** O(V+E): builds a fresh AdjacencyList with O(1) inserts; an undirected graph is cloned. */
   transpose(): Graph<V, E> {
     const result = new AdjacencyList<V, E>(this._directed);
     for (const [vertex, record] of this._vertices) {
@@ -197,6 +233,7 @@ export class AdjacencyList<V = unknown, E = unknown>
     return result;
   }
 
+  /** O(V+E); shallow with respect to vertex/edge `data` (new Edge objects, same payloads). */
   clone(): Graph<V, E> {
     const result = new AdjacencyList<V, E>(this._directed);
     for (const [vertex, record] of this._vertices) {
@@ -208,6 +245,7 @@ export class AdjacencyList<V = unknown, E = unknown>
     return result;
   }
 
+  /** O(V+E) to collect entries plus JSON.stringify of the O(V+E) output. */
   serialize(): string {
     const vertices = [...this._vertices].map(([vertex, record]) => ({
       vertex,
@@ -221,6 +259,10 @@ export class AdjacencyList<V = unknown, E = unknown>
     );
   }
 
+  /**
+   * O(V+E) expected after parsing: parseGraph validates/dedupes in O(1) per entry, then each
+   * vertex and edge is an O(1) insert.
+   */
   static deserialize<V = unknown, E = unknown>(
     json: unknown,
   ): AdjacencyList<V, E> {
@@ -235,6 +277,7 @@ export class AdjacencyList<V = unknown, E = unknown>
     return graph;
   }
 
+  /** O(V+E): walks every out and in Map with O(1) cross-lookups; returns on the first fault. */
   validate(): true | string {
     let edgeCount = 0;
     let loopCount = 0;

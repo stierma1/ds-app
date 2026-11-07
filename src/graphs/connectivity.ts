@@ -10,6 +10,13 @@ import {
   orientedEdges,
 } from "./shared.ts";
 
+/**
+ * Tarjan's SCC. O(V+E) time and space, ITERATIVE: an explicit frame stack (vertex + next
+ * edge cursor) replaces recursion, so graphs with million-vertex chains are safe. Uses
+ * graph.directed (no options); on an undirected graph each connected component is one SCC.
+ * Components are emitted in reverse topological order of the condensation DAG (a sink SCC
+ * first), which callers can rely on instead of sorting.
+ */
 export function stronglyConnectedComponents(graph: Graph): Vertex[][] {
   const view = buildAdjacency(graph, graph.directed);
   const count = view.vertices.length;
@@ -79,6 +86,13 @@ interface LowlinkResult {
   biconnectedComponents: Edge[][];
 }
 
+/**
+ * Shared iterative lowlink DFS for undirected graphs: one O(V+E) pass computes bridges,
+ * articulation points and biconnected components together. Each public wrapper below runs
+ * the full pass and discards the other two results, so calling all three costs three passes.
+ * Parent edges are skipped by Edge identity (not by vertex), and self-loops become their
+ * own single-edge component.
+ */
 function lowlink(graph: Graph): LowlinkResult {
   if (graph.directed) {
     throw new TypeError("operation requires an undirected graph");
@@ -181,18 +195,35 @@ function lowlink(graph: Graph): LowlinkResult {
   };
 }
 
+/** O(V+E), iterative (explicit stack). Throws TypeError on a directed graph. */
 export function bridges(graph: Graph): Edge[] {
   return lowlink(graph).bridges;
 }
 
+/**
+ * O(V+E), iterative; the result is filtered into vertex insertion order (an extra O(V)).
+ * Throws TypeError on a directed graph.
+ */
 export function articulationPoints(graph: Graph): Vertex[] {
   return lowlink(graph).articulationPoints;
 }
 
+/**
+ * O(V+E), iterative; returns edge groups, with bridges as single-edge components.
+ * Throws TypeError on a directed graph.
+ */
 export function biconnectedComponents(graph: Graph): Edge[][] {
   return lowlink(graph).biconnectedComponents;
 }
 
+/**
+ * Hierholzer's algorithm, ITERATIVE (explicit vertex stack plus per-vertex edge cursors).
+ * O(V+E) time and space, but with a high constant: it builds the directed view, an
+ * undirected view for the connectivity check, and a third per-edge-id adjacency. Returns an
+ * Euler circuit when one exists, otherwise a path, [] for an edgeless graph, and undefined
+ * when the degree conditions fail or the non-isolated vertices are not connected (both
+ * checked up front before any walking). Respects `options.directed`.
+ */
 export function eulerPath(
   graph: Graph,
   options?: GraphAlgorithmOptions,

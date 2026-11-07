@@ -3,6 +3,14 @@ function literalNode(literal: number): number {
   return literal > 0 ? variable * 2 : variable * 2 + 1;
 }
 
+/**
+ * 2-SAT by SCC on the implication graph. With n = `variables` and m clauses: O(n + m) time
+ * and space (2n nodes, 2m arcs). Tarjan's SCC is ITERATIVE with an explicit frame stack, so
+ * huge instances cannot overflow the call stack. Literals are 1-based and negative means
+ * negated. Returns undefined when some variable shares an SCC with its negation, otherwise
+ * a satisfying assignment chosen from SCC emission order (sink components first). `clauses`
+ * is consumed once; validation of each clause is O(1).
+ */
 export function twoSat(
   clauses: Iterable<[number, number]>,
   variables: number,

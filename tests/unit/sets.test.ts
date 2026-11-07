@@ -613,3 +613,61 @@ test("CuckooFilter supports lookup and deletion", () => {
     TypeError,
   );
 });
+
+test("BitSet word-parallel algebra agrees with the element-wise path", () => {
+  const universe = 1000;
+  let state = 12345;
+  const random = (): number => {
+    state = (Math.imul(state, 1103515245) + 12345) >>> 0;
+    return state / 0x100000000;
+  };
+  const a = new BitSet(universe);
+  const b = new BitSet(universe);
+  for (let i = 0; i < universe; i++) {
+    if (random() < 0.4) a.add(i);
+    if (random() < 0.4) b.add(i);
+  }
+  const bValues = b.toArray();
+  for (const op of ["union", "intersection", "difference", "symmetricDifference"] as const) {
+    const fast = a[op](b);
+    const slow = a[op](bValues);
+    assert.deepEqual(fast.toArray(), slow.toArray(), op);
+    assert.equal(fast.size, slow.size, `${op} size`);
+    assert.equal(fast.validate(), true, op);
+  }
+  assert.equal(a.isSubsetOf(b), a.isSubsetOf(bValues));
+  assert.equal(a.union(b).isSubsetOf(a.union(bValues)), true);
+  assert.equal(a.intersection(b).isSubsetOf(a), true);
+  assert.equal(a.equals(b), a.equals(bValues));
+  assert.equal(a.equals(a.union(new BitSet(universe))), true);
+  // A BitSet over another universe takes the element-wise path and still agrees.
+  const c = new BitSet(2000);
+  for (const value of bValues) c.add(value);
+  assert.deepEqual(a.union(c).toArray(), a.union(b).toArray());
+  assert.equal(a.isSubsetOf(c), a.isSubsetOf(b));
+});
+
+test("SortedArraySet merges accept unsorted iterables with duplicates", () => {
+  const set = new SortedArraySet<number>();
+  for (const value of [1, 3, 5, 7, 9]) set.add(value);
+  const other = [9, 2, 2, 5, 11, 1, 11];
+  assert.deepEqual(set.union(other).toArray(), [1, 2, 3, 5, 7, 9, 11]);
+  assert.deepEqual(set.intersection(other).toArray(), [1, 5, 9]);
+  assert.deepEqual(set.difference(other).toArray(), [3, 7]);
+  assert.deepEqual(set.symmetricDifference(other).toArray(), [2, 3, 7, 11]);
+  assert.equal(set.isSubsetOf([9, 7, 5, 3, 1, 0]), true);
+  assert.equal(set.isSubsetOf([9, 7, 5, 3]), false);
+  assert.equal(set.equals([9, 1, 7, 3, 5, 5]), true);
+  assert.equal(set.equals([9, 1, 7, 3]), false);
+  // Results are independent fresh sets; the inputs are untouched.
+  const union = set.union(other);
+  union.add(100);
+  assert.equal(set.has(100), false);
+  assert.deepEqual(other, [9, 2, 2, 5, 11, 1, 11]);
+  assert.equal(union.validate(), true);
+  // A SortedArraySet with a different comparator is re-sorted under this set's comparator.
+  const descending = new SortedArraySet<number>((x, y) => y - x);
+  for (const value of [4, 3, 2]) descending.add(value);
+  assert.deepEqual(set.union(descending).toArray(), [1, 2, 3, 4, 5, 7, 9]);
+  assert.deepEqual(descending.union(set).toArray(), [9, 7, 5, 4, 3, 2, 1]);
+});

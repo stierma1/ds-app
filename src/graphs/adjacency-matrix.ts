@@ -12,6 +12,20 @@ interface MatrixVertex<V> {
   data: V | undefined;
 }
 
+/**
+ * Dense V x V matrix of Edge | undefined (array of row arrays) plus a Map from vertex to
+ * row index.
+ *
+ * Fast: hasEdge/getEdge/addEdge/removeEdge are O(1) with no Map-of-Maps indirection.
+ * Slow: memory is O(V^2) regardless of E; neighbors(), incidentEdges() and every degree
+ * query scan a whole row (or column) in O(V) even for a degree-1 vertex; edges() is O(V^2),
+ * so EVERY algorithm run on a matrix pays O(V^2) up front in buildAdjacency; addVertex is
+ * O(V) (appends a cell to every row) and removeVertex is O(V^2) (splices every row and
+ * rebuilds the index). Only worth it when the graph is dense (E close to V^2) or when
+ * hasEdge dominates and V is small; otherwise prefer AdjacencyList. No growth policy: rows
+ * grow one cell per addVertex via array push, and nothing shrinks except on removeVertex.
+ * Every iterable is an eager snapshot.
+ */
 export class AdjacencyMatrix<V = unknown, E = unknown>
   implements Graph<V, E>
 {
@@ -29,14 +43,20 @@ export class AdjacencyMatrix<V = unknown, E = unknown>
     return this._directed;
   }
 
+  /** O(1). */
   get order(): number {
     return this._vertices.length;
   }
 
+  /** O(1). */
   get size(): number {
     return this._size;
   }
 
+  /**
+   * O(V): pushes an undefined cell onto every existing row and allocates a new V+1 row, so
+   * building V vertices costs O(V^2) total. Rejecting a duplicate is O(1).
+   */
   addVertex(vertex: Vertex, data?: V): boolean {
     assertVertex(vertex);
     if (this._index.has(vertex)) {
@@ -52,6 +72,10 @@ export class AdjacencyMatrix<V = unknown, E = unknown>
     return true;
   }
 
+  /**
+   * O(V^2): scans the row (and column when directed), splices the column out of every row,
+   * splices the row, and rebuilds the whole vertex->index Map because indices shift.
+   */
   removeVertex(vertex: Vertex): boolean {
     const index = this._index.get(vertex);
     if (index === undefined) {
@@ -86,10 +110,12 @@ export class AdjacencyMatrix<V = unknown, E = unknown>
     return true;
   }
 
+  /** O(1) expected. */
   hasVertex(vertex: Vertex): boolean {
     return this._index.has(vertex);
   }
 
+  /** O(1) when both endpoints exist; otherwise O(V) per auto-created endpoint (see addVertex). */
   addEdge(
     from: Vertex,
     to: Vertex,
@@ -112,6 +138,7 @@ export class AdjacencyMatrix<V = unknown, E = unknown>
     return true;
   }
 
+  /** O(1): clears one cell (two when undirected). */
   removeEdge(from: Vertex, to: Vertex): boolean {
     const source = this._index.get(from);
     const target = this._index.get(to);
@@ -129,6 +156,10 @@ export class AdjacencyMatrix<V = unknown, E = unknown>
     return true;
   }
 
+  /**
+   * O(1): two Map lookups and one cell read, independent of degree. The matrix's headline
+   * advantage.
+   */
   hasEdge(from: Vertex, to: Vertex): boolean {
     const source = this._index.get(from);
     const target = this._index.get(to);
@@ -138,6 +169,7 @@ export class AdjacencyMatrix<V = unknown, E = unknown>
     return this._matrix[source][target] !== undefined;
   }
 
+  /** O(1); returns the shared Edge object. */
   getEdge(from: Vertex, to: Vertex): Edge<E> | undefined {
     const source = this._index.get(from);
     const target = this._index.get(to);
@@ -147,6 +179,10 @@ export class AdjacencyMatrix<V = unknown, E = unknown>
     return this._matrix[source][target];
   }
 
+  /**
+   * O(V): scans the full row regardless of degree and allocates the result array. Prefer
+   * AdjacencyList or CSR (O(deg)) when neighbor iteration dominates.
+   */
   neighbors(vertex: Vertex): Iterable<Vertex> {
     const index = this._index.get(vertex);
     if (index === undefined) {
@@ -162,6 +198,10 @@ export class AdjacencyMatrix<V = unknown, E = unknown>
     return snapshotIterator(result);
   }
 
+  /**
+   * O(V) row filter; directed graphs also scan the column (strided across all rows, cache-
+   * unfriendly) and dedupe through a Set.
+   */
   incidentEdges(vertex: Vertex): Iterable<Edge<E>> {
     const index = this._index.get(vertex);
     if (index === undefined) {
@@ -183,10 +223,15 @@ export class AdjacencyMatrix<V = unknown, E = unknown>
     return snapshotIterator(uniqueEdges(edges) as Edge<E>[]);
   }
 
+  /** O(V) snapshot copy in insertion order. */
   vertices(): Iterable<Vertex> {
     return snapshotIterator(this._vertices.map((entry) => entry.vertex));
   }
 
+  /**
+   * O(V^2): scans every cell (upper triangle for undirected). This is the floor cost of any
+   * algorithm, transpose, clone or serialize on a matrix, even when E is tiny.
+   */
   edges(): Iterable<Edge<E>> {
     const result: Edge<E>[] = [];
     for (let i = 0; i < this._matrix.length; i++) {
@@ -202,6 +247,7 @@ export class AdjacencyMatrix<V = unknown, E = unknown>
     return snapshotIterator(result);
   }
 
+  /** O(V): row scan (undirected) or row + column scan (directed). Not cached. */
   degree(vertex: Vertex): number {
     const index = this._index.get(vertex);
     if (index === undefined) {
@@ -222,6 +268,7 @@ export class AdjacencyMatrix<V = unknown, E = unknown>
     return count;
   }
 
+  /** O(V): directed graphs scan one column across all rows. */
   inDegree(vertex: Vertex): number {
     const index = this._index.get(vertex);
     if (index === undefined) {
@@ -239,6 +286,7 @@ export class AdjacencyMatrix<V = unknown, E = unknown>
     return count;
   }
 
+  /** O(V): row scan. */
   outDegree(vertex: Vertex): number {
     const index = this._index.get(vertex);
     if (index === undefined) {
@@ -256,6 +304,7 @@ export class AdjacencyMatrix<V = unknown, E = unknown>
     return count;
   }
 
+  /** O(V^2): V addVertex calls at O(V) each plus the O(V^2) edges() scan. */
   transpose(): Graph<V, E> {
     const result = new AdjacencyMatrix<V, E>(this._directed);
     for (const record of this._vertices) {
@@ -271,6 +320,7 @@ export class AdjacencyMatrix<V = unknown, E = unknown>
     return result;
   }
 
+  /** O(V^2): same shape of work as transpose; allocates a fresh V x V matrix. */
   clone(): Graph<V, E> {
     const result = new AdjacencyMatrix<V, E>(this._directed);
     for (const record of this._vertices) {
@@ -282,6 +332,7 @@ export class AdjacencyMatrix<V = unknown, E = unknown>
     return result;
   }
 
+  /** O(V^2) to scan for edges; the output itself is O(V+E). */
   serialize(): string {
     return serializeGraph(
       "AdjacencyMatrix",
@@ -294,6 +345,7 @@ export class AdjacencyMatrix<V = unknown, E = unknown>
     );
   }
 
+  /** O(V^2 + E): rebuilding the matrix costs O(V) per vertex even for a sparse payload. */
   static deserialize<V = unknown, E = unknown>(
     json: unknown,
   ): AdjacencyMatrix<V, E> {
@@ -308,6 +360,7 @@ export class AdjacencyMatrix<V = unknown, E = unknown>
     return graph;
   }
 
+  /** O(V^2): checks every cell, with an O(1) symmetric-cell lookup per edge when undirected. */
   validate(): true | string {
     for (let i = 0; i < this._matrix.length; i++) {
       if (this._matrix[i].length !== this._vertices.length) {

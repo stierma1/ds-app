@@ -6,6 +6,17 @@ import {
 } from "./shared.ts";
 import { parseGraph, serializeGraph } from "./serialization.ts";
 
+/**
+ * Flat edge list: a Map<Vertex, data> plus one plain array of Edge objects.
+ *
+ * Cheapest to construct per vertex and smallest per-edge overhead, but there is no index of
+ * any kind, so hasEdge, getEdge, removeEdge, neighbors, incidentEdges and every degree query
+ * are O(E) full scans. addEdge is ALSO O(E) because it scans for duplicates first, so
+ * bulk-loading E edges is O(E^2); transpose, clone and deserialize inherit that bound.
+ * Use it only as a staging container (edges() is a free O(E) copy with no dedupe, which
+ * suits Kruskal or CSR.from) or for very small graphs; prefer AdjacencyList as a working
+ * graph. Every iterable is an eager snapshot.
+ */
 export class EdgeList<V = unknown, E = unknown> implements Graph<V, E> {
   private readonly _directed: boolean;
   private readonly _vertices = new Map<Vertex, V | undefined>();
@@ -19,14 +30,17 @@ export class EdgeList<V = unknown, E = unknown> implements Graph<V, E> {
     return this._directed;
   }
 
+  /** O(1). */
   get order(): number {
     return this._vertices.size;
   }
 
+  /** O(1). */
   get size(): number {
     return this._edges.length;
   }
 
+  /** O(1) expected. */
   addVertex(vertex: Vertex, data?: V): boolean {
     assertVertex(vertex);
     if (this._vertices.has(vertex)) {
@@ -36,6 +50,7 @@ export class EdgeList<V = unknown, E = unknown> implements Graph<V, E> {
     return true;
   }
 
+  /** O(E) scan, plus an O(E) splice per incident edge: O(E * deg) worst case. */
   removeVertex(vertex: Vertex): boolean {
     if (!this._vertices.has(vertex)) {
       return false;
@@ -50,10 +65,15 @@ export class EdgeList<V = unknown, E = unknown> implements Graph<V, E> {
     return true;
   }
 
+  /** O(1) expected. */
   hasVertex(vertex: Vertex): boolean {
     return this._vertices.has(vertex);
   }
 
+  /**
+   * O(E): scans the whole list for a duplicate before pushing, so inserting E edges is
+   * O(E^2). Auto-creates missing endpoints.
+   */
   addEdge(
     from: Vertex,
     to: Vertex,
@@ -82,6 +102,7 @@ export class EdgeList<V = unknown, E = unknown> implements Graph<V, E> {
     return -1;
   }
 
+  /** O(E): linear scan then splice (shifts the tail). */
   removeEdge(from: Vertex, to: Vertex): boolean {
     const index = this.indexOfEdge(from, to);
     if (index < 0) {
@@ -91,15 +112,18 @@ export class EdgeList<V = unknown, E = unknown> implements Graph<V, E> {
     return true;
   }
 
+  /** O(E) linear scan; O(1) in AdjacencyList/AdjacencyMatrix. */
   hasEdge(from: Vertex, to: Vertex): boolean {
     return this.indexOfEdge(from, to) >= 0;
   }
 
+  /** O(E) linear scan; returns the shared Edge object. */
   getEdge(from: Vertex, to: Vertex): Edge<E> | undefined {
     const index = this.indexOfEdge(from, to);
     return index < 0 ? undefined : this._edges[index];
   }
 
+  /** O(E): scans every edge regardless of degree and allocates the result. */
   neighbors(vertex: Vertex): Iterable<Vertex> {
     if (!this._vertices.has(vertex)) {
       throw new RangeError("vertex is not in the graph");
@@ -115,6 +139,7 @@ export class EdgeList<V = unknown, E = unknown> implements Graph<V, E> {
     return snapshotIterator(result);
   }
 
+  /** O(E) filter over all edges. */
   incidentEdges(vertex: Vertex): Iterable<Edge<E>> {
     if (!this._vertices.has(vertex)) {
       throw new RangeError("vertex is not in the graph");
@@ -124,14 +149,20 @@ export class EdgeList<V = unknown, E = unknown> implements Graph<V, E> {
     ));
   }
 
+  /** O(V) snapshot copy. */
   vertices(): Iterable<Vertex> {
     return snapshotIterator(this._vertices.keys());
   }
 
+  /**
+   * O(E) copy of the backing array; no dedupe pass is needed because addEdge rejects
+   * duplicates. The one operation where EdgeList is as cheap as CSR.
+   */
   edges(): Iterable<Edge<E>> {
     return snapshotIterator(this._edges);
   }
 
+  /** O(E): one full scan (two when directed, via inDegree + outDegree). */
   degree(vertex: Vertex): number {
     if (!this._vertices.has(vertex)) {
       throw new RangeError("vertex is not in the graph");
@@ -150,6 +181,7 @@ export class EdgeList<V = unknown, E = unknown> implements Graph<V, E> {
     return this.inDegree(vertex) + this.outDegree(vertex);
   }
 
+  /** O(E) scan. */
   inDegree(vertex: Vertex): number {
     if (!this._vertices.has(vertex)) {
       throw new RangeError("vertex is not in the graph");
@@ -166,6 +198,7 @@ export class EdgeList<V = unknown, E = unknown> implements Graph<V, E> {
     return count;
   }
 
+  /** O(E) scan. */
   outDegree(vertex: Vertex): number {
     if (!this._vertices.has(vertex)) {
       throw new RangeError("vertex is not in the graph");
@@ -182,6 +215,7 @@ export class EdgeList<V = unknown, E = unknown> implements Graph<V, E> {
     return count;
   }
 
+  /** O(E^2): each of the E inserts into the new list re-scans for duplicates. */
   transpose(): Graph<V, E> {
     const result = new EdgeList<V, E>(this._directed);
     for (const [vertex, data] of this._vertices) {
@@ -197,6 +231,10 @@ export class EdgeList<V = unknown, E = unknown> implements Graph<V, E> {
     return result;
   }
 
+  /**
+   * O(E^2) for the same reason as transpose; spread-copying `_edges` would be O(E) but is
+   * not what this does.
+   */
   clone(): Graph<V, E> {
     const result = new EdgeList<V, E>(this._directed);
     for (const [vertex, data] of this._vertices) {
@@ -208,6 +246,7 @@ export class EdgeList<V = unknown, E = unknown> implements Graph<V, E> {
     return result;
   }
 
+  /** O(V+E). */
   serialize(): string {
     const vertices = [...this._vertices].map(([vertex, data]) => ({
       vertex,
@@ -221,6 +260,7 @@ export class EdgeList<V = unknown, E = unknown> implements Graph<V, E> {
     );
   }
 
+  /** O(E^2): parseGraph already rejects duplicates in O(1) each, but addEdge re-scans anyway. */
   static deserialize<V = unknown, E = unknown>(
     json: unknown,
   ): EdgeList<V, E> {
@@ -235,6 +275,7 @@ export class EdgeList<V = unknown, E = unknown> implements Graph<V, E> {
     return graph;
   }
 
+  /** O(E) with O(1) endpoint lookups. */
   validate(): true | string {
     for (const edge of this._edges) {
       if (!this._vertices.has(edge.from) || !this._vertices.has(edge.to)) {

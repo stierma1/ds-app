@@ -1,6 +1,14 @@
 import type { Edge, Graph, Vertex } from "./types.ts";
 import { buildAdjacency } from "./shared.ts";
 
+/**
+ * Hopcroft-Karp maximum bipartite matching: O(E * sqrt(V)) time, O(V+E) space. Each phase
+ * is one BFS layering plus iterative DFS augmentations (explicit stack, no recursion) and
+ * there are O(sqrt(V)) phases. `left` defines the partition; every other vertex is treated
+ * as right, and edges with both endpoints on the same side are silently dropped rather than
+ * rejected, so bipartiteness is not verified. Direction is ignored. Parallel left-right
+ * pairs are deduped through a Set of `${u}:${v}` strings (one string allocation per edge).
+ */
 export function bipartiteMatching(
   graph: Graph,
   left: Iterable<Vertex>,

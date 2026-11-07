@@ -31,6 +31,21 @@ interface PerfectBucket<K, V> {
   overflow: Array<PerfectEntry<K, V>>;
 }
 
+/**
+ * Static two-level (FKS-style) perfect hash table built once from a fixed key set. Level one maps
+ * a key's hash to one of n buckets with a seeded multiplier; a bucket holding s keys gets a
+ * second-level array of s * s slots and a multiplier that places its keys collision-free (up to
+ * 1000 random tries, only 32 once s * s > 4096). If no multiplier is found, or s > 500, the bucket
+ * falls back to a linear `overflow` list.
+ * Lookup is O(1) worst case (two multiply-mod steps, one hash compare, one `equals`) for every
+ * bucket that resolved perfectly; a fallback bucket costs O(s). Each lookup hashes the key twice
+ * (the user hash xor defaultHash), so string keys pay O(length) twice.
+ * Immutable after build() except for clear(): there is no set/delete/reserve, so use HashMap for
+ * anything that changes. Build is expected O(n) time and O(n) space (sum of s * s), but a skewed
+ * first-level split can allocate up to 250,000 slots for one bucket. Input is deduplicated through
+ * a HashMap first. Iteration is a snapshot over all slots, O(total slots) >= O(n), and throws
+ * ConcurrentModificationError if clear() runs mid-iteration.
+ */
 export class PerfectHashing<K, V> extends ContainerBase<[K, V]> {
   private readonly _hash: (key: K) => number;
   private readonly _equals: (a: K, b: K) => boolean;
@@ -49,6 +64,10 @@ export class PerfectHashing<K, V> extends ContainerBase<[K, V]> {
     }
   }
 
+  /**
+   * Expected O(n) time and space: dedupes via a HashMap, hashes every key, then searches a
+   * collision-free multiplier per bucket (O(tries * s) each). Deterministic for a given seed.
+   */
   static build<K, V>(
     entries: Iterable<readonly [K, V]>,
     options: PerfectHashOptions<K> = {},
@@ -62,6 +81,10 @@ export class PerfectHashing<K, V> extends ContainerBase<[K, V]> {
     return table;
   }
 
+  /**
+   * O(1) worst case for a perfectly resolved bucket; O(s) for a bucket that fell back to its
+   * overflow list. Hashes the key twice.
+   */
   get(key: K): V | undefined {
     assertDefined(key, "key");
     const hash = this.hashKey(key);
@@ -88,10 +111,12 @@ export class PerfectHashing<K, V> extends ContainerBase<[K, V]> {
     return undefined;
   }
 
+  /** Same cost as get(). */
   has(key: K): boolean {
     return this.get(key) !== undefined;
   }
 
+  /** O(1): drops every bucket; the table must be rebuilt with build() to be useful again. */
   clear(): void {
     this._firstMultiplier = 1;
     this._firstSize = 1;
@@ -100,6 +125,7 @@ export class PerfectHashing<K, V> extends ContainerBase<[K, V]> {
     this.touch();
   }
 
+  /** O(total slots + n) and re-hashes every key; diagnostic only. */
   validate(): true | string {
     if (this._buckets.length !== this._firstSize) {
       return "bucket count does not match first-level size";
@@ -188,26 +214,32 @@ export class PerfectHashing<K, V> extends ContainerBase<[K, V]> {
     return entries;
   }
 
+  /** O(total second-level slots), which is >= n: scans every slot including empty ones. */
   toArray(): Array<[K, V]> {
     return this.collectEntries();
   }
 
+  /** O(total slots) up front: snapshot iterator over toArray(). */
   [Symbol.iterator](): IterableIterator<[K, V]> {
     return this.snapshotIterator(this.toArray());
   }
 
+  /** O(total slots) snapshot plus a second array of keys. */
   keys(): IterableIterator<K> {
     return this.snapshotIterator(this.toArray().map(([key]) => key));
   }
 
+  /** O(total slots) snapshot plus a second array of values. */
   values(): IterableIterator<V> {
     return this.snapshotIterator(this.toArray().map(([, value]) => value));
   }
 
+  /** O(total slots) up front: snapshot iterator over toArray(). */
   entries(): IterableIterator<[K, V]> {
     return this.snapshotIterator(this.toArray());
   }
 
+  /** O(total slots + n): stores only the entries and seed; the layout is rebuilt on deserialize. */
   serialize(): string {
     return serializeRecord("PerfectHashing", {
       seed: this._seed,
@@ -215,6 +247,7 @@ export class PerfectHashing<K, V> extends ContainerBase<[K, V]> {
     });
   }
 
+  /** O(n) parse followed by a full build() (expected O(n)). */
   static deserialize<K, V>(
     json: unknown,
     options: PerfectHashOptions<K> = {},
@@ -261,6 +294,10 @@ export class PerfectHashing<K, V> extends ContainerBase<[K, V]> {
     this.touch();
   }
 
+  /**
+   * Second-level policy: s * s slots, up to 1000 multiplier tries (32 once s * s > 4096), and a
+   * linear overflow fallback when the tries run out or s > 500 (which would need > 250,000 slots).
+   */
   private buildBucket(
     entries: Array<{ key: K; value: V; hash: number }>,
     rng: () => number,
@@ -311,6 +348,10 @@ export class PerfectHashing<K, V> extends ContainerBase<[K, V]> {
     };
   }
 
+  /**
+   * Mixes the user hash with defaultHash so a weak user hash still spreads across buckets; the
+   * price is two hash computations per key on every build and lookup.
+   */
   private hashKey(key: K): number {
     const user = normalizeHash(this._hash(key));
     try {

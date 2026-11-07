@@ -6,6 +6,10 @@ interface HeapItem<E> {
   run: number;
 }
 
+/**
+ * Binary min-heap of (value, run index) pairs ordered by the comparator and then by run index,
+ * which is what makes the merge stable. push and pop are O(log k) for k runs.
+ */
 class MinHeap<E> {
   private _items: Array<HeapItem<E>> = [];
   private readonly _compare: Comparator<E>;
@@ -79,6 +83,18 @@ class MinHeap<E> {
   }
 }
 
+/**
+ * Lazy k-way merge of k sorted iterables using a binary min-heap of their current heads.
+ *
+ * Total cost is O(N log k) for N elements across all runs, with O(k) extra memory for the heap plus
+ * one buffered element per run; nothing is materialized except the list of runs itself. Elements
+ * are yielded on demand, so taking only the first p results costs O(k + p log k). Ties are broken
+ * by run index, so the merge is stable with respect to run order. With `unique: true`, consecutive
+ * equal values (comparator returns 0) collapse into the first at O(1) extra per element. Each run
+ * is checked for monotonicity as it is consumed: a RangeError is thrown lazily at the first
+ * out-of-order element, not up front, and undefined elements throw TypeError. This is the
+ * linear-time alternative to SortedArraySet.union for inputs that are already sorted.
+ */
 export function* mergeSortedRuns<E>(
   runs: Iterable<Iterable<E>>,
   compare: Comparator<E>,

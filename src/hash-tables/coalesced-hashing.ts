@@ -9,6 +9,20 @@ const EMPTY = 0;
 const OCCUPIED = 1;
 const DELETED = 2;
 
+/**
+ * Coalesced hashing: open addressing where colliding entries are linked into chains through a
+ * parallel Int32Array of `next` indices instead of being re-probed. Storage is parallel arrays
+ * (states, keys, values, hashes, next) with no per-entry objects. A new collider takes the next
+ * EMPTY slot found by a roving cursor, so chains from different home slots merge ("coalesce") and
+ * run longer than SeparateChaining's; lookups follow index hops rather than a probe sequence.
+ * Default loadFactor 0.75, not capped below 1 (a full table just forces a doubling). Deletion
+ * marks a DELETED cell that keeps its link; the cell is reused only if it is the home slot of a
+ * later key, so deleted cells count toward the load factor until a rehash. Purge happens at the
+ * same capacity when set() sees size + deleted + 1 > capacity * loadFactor with live entries still
+ * fitting, or when delete() leaves more than max(16, size) deleted cells; both are O(n + capacity)
+ * and recompute every hash.
+ * Expected O(1) per operation; worst case O(n) along one merged chain. Iteration is a snapshot.
+ */
 export class CoalescedHashing<K, V> extends HashTableBase<K, V> {
   private _states: Uint8Array;
   private _keys: Array<K | undefined>;
@@ -27,6 +41,10 @@ export class CoalescedHashing<K, V> extends HashTableBase<K, V> {
     this._next = new Int32Array(this._capacity).fill(-1);
   }
 
+  /**
+   * Expected O(1): walks the whole home chain, then appends at its tail. The free-slot cursor is
+   * amortized O(1) but a single call may sweep O(capacity); O(n + capacity) when it rehashes.
+   */
   set(key: K, value: V): this {
     this.assertStorable(key, value);
     if (this._size + this._deleted + 1 > this._capacity * this._loadFactor) {
@@ -82,6 +100,10 @@ export class CoalescedHashing<K, V> extends HashTableBase<K, V> {
     return this;
   }
 
+  /**
+   * Expected O(1): follows `next` links from the home slot; worst O(n) on a long coalesced
+   * chain.
+   */
   get(key: K): V | undefined {
     const hash = this.hashKey(key);
     let index = hash & (this._capacity - 1);
@@ -101,10 +123,15 @@ export class CoalescedHashing<K, V> extends HashTableBase<K, V> {
     return undefined;
   }
 
+  /** Same cost as get(). */
   has(key: K): boolean {
     return this.get(key) !== undefined;
   }
 
+  /**
+   * Expected O(1): marks the cell DELETED and keeps its link (no unlinking, no shifting).
+   * Triggers an O(n + capacity) same-capacity rehash once deleted cells exceed max(16, size).
+   */
   delete(key: K): boolean {
     const hash = this.hashKey(key);
     let index = hash & (this._capacity - 1);
@@ -133,6 +160,7 @@ export class CoalescedHashing<K, V> extends HashTableBase<K, V> {
     return false;
   }
 
+  /** O(capacity): reallocates every slot array and resets the free cursor. */
   clear(): void {
     this.reset(this._capacity);
     this._size = 0;
@@ -140,11 +168,16 @@ export class CoalescedHashing<K, V> extends HashTableBase<K, V> {
     this.touch();
   }
 
+  /**
+   * `capacity` is an entry count: one O(n + newCapacity) rehash (which also drops deleted cells) if
+   * that many entries would exceed the load factor, otherwise a no-op. Never shrinks.
+   */
   reserve(capacity: number): void {
     this.assertCapacity(capacity);
     this.ensureCapacityForEntries(capacity);
   }
 
+  /** O(capacity + n * chain length) and re-hashes every key; diagnostic only. */
   validate(): true | string {
     if (this._states.length !== this._capacity) {
       return "slot array length does not match capacity";
@@ -231,6 +264,7 @@ export class CoalescedHashing<K, V> extends HashTableBase<K, V> {
     return true;
   }
 
+  /** O(capacity + n): the payload includes the full state array and every link. */
   override serialize(): string {
     const links: Array<[number, number]> = [];
     const entries: Array<[number, K, V, number]> = [];
@@ -384,6 +418,10 @@ export class CoalescedHashing<K, V> extends HashTableBase<K, V> {
     return "CoalescedHashing";
   }
 
+  /**
+   * O(n + capacity): drops deleted cells, re-hashes every key and re-links every chain from
+   * scratch.
+   */
   protected rehash(capacity: number): void {
     const entries = this.collectEntries();
     this._capacity = nextPowerOfTwo(capacity);
@@ -396,6 +434,10 @@ export class CoalescedHashing<K, V> extends HashTableBase<K, V> {
     this.touch();
   }
 
+  /**
+   * O(capacity + n) from a layout payload; otherwise O(n) expected re-insertion. Followed by an
+   * O(capacity + n * chain) validate.
+   */
   static deserialize<K, V>(
     json: unknown,
     options: HashOptions<K> = {},
@@ -451,6 +493,10 @@ export class CoalescedHashing<K, V> extends HashTableBase<K, V> {
     this._size++;
   }
 
+  /**
+   * Roving cursor: skips non-empty cells and never revisits a consumed one until a rehash resets
+   * it, so the scan is amortized O(1) per insert even though one call can take O(capacity).
+   */
   private findFreeSlot(): number {
     for (let count = 0; count < this._capacity; count++) {
       const index = this._freeCursor;

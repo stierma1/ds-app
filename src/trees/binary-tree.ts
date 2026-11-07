@@ -9,6 +9,7 @@ import {
 } from "../core/index.ts";
 import type { TreeNode, TreeLike } from "./types.ts";
 
+/** O(1): allocates a detached node; link it into a parent's left/right yourself. */
 export function makeNode<T>(
   value: T,
   parent: TreeNode<T> | null = null,
@@ -16,14 +17,30 @@ export function makeNode<T>(
   return { value, left: null, right: null, parent };
 }
 
+/**
+ * Plain pointer-linked binary tree over TreeNode records with parent pointers; no
+ * ordering and no cached node count, so `size`, `height`, and `validate` each walk
+ * all n nodes per call. Every traversal (pre/in/post/level order, Euler tour) is
+ * iterative with an explicit stack or queue, safe on deep or path-shaped trees, but
+ * each materializes a full O(n) array before returning a snapshot iterator; none is
+ * lazy. The snapshot throws ConcurrentModificationError only if the version changes,
+ * and only `clear()` bumps it; edits made directly through exposed nodes go unseen.
+ * Prefer BinarySearchTree for keyed lookup, GeneralTree for arbitrary arity.
+ */
 export class BinaryTree<T> extends ContainerBase<T> implements TreeLike<T> {
   private _root: TreeNode<T> | null;
 
+  /** O(1): adopts an existing node graph as-is without copying or validating it. */
   constructor(root: TreeNode<T> | null = null) {
     super();
     this._root = root;
   }
 
+  /**
+   * O(n) node allocations from a level-order array with null holes. The BFS queue is
+   * drained with Array.shift(), which can be linear per call depending on the engine,
+   * so very large inputs may trend toward O(n^2).
+   */
   static fromComplete<T>(values: Array<T | null>): BinaryTree<T> {
     if (values.length === 0 || values[0] === null) {
       return new BinaryTree<T>(null);
@@ -52,10 +69,12 @@ export class BinaryTree<T> extends ContainerBase<T> implements TreeLike<T> {
     return new BinaryTree(root);
   }
 
+  /** O(1): returns the live root node, not a copy. */
   get root(): TreeNode<T> | null {
     return this._root;
   }
 
+  /** O(n): no count is cached, so every read walks the whole tree; cache it if you poll. */
   override get size(): number {
     let count = 0;
     const stack: TreeNode<T>[] = this._root === null ? [] : [this._root];
@@ -68,10 +87,12 @@ export class BinaryTree<T> extends ContainerBase<T> implements TreeLike<T> {
     return count;
   }
 
+  /** O(1): checks the root pointer only, unlike `size`. */
   override isEmpty(): boolean {
     return this._root === null;
   }
 
+  /** O(n): breadth-first level sweep allocating one array per level; -1 when empty. */
   get height(): number {
     if (this._root === null) {
       return -1;
@@ -92,6 +113,7 @@ export class BinaryTree<T> extends ContainerBase<T> implements TreeLike<T> {
     return height;
   }
 
+  /** O(n) time and space: iterative explicit-stack walk, materialized into a snapshot array. */
   preorder(): IterableIterator<T> {
     const values: T[] = [];
     const stack: TreeNode<T>[] = this._root === null ? [] : [this._root];
@@ -104,6 +126,7 @@ export class BinaryTree<T> extends ContainerBase<T> implements TreeLike<T> {
     return this.snapshotIterator(values);
   }
 
+  /** O(n) time and space: iterative explicit-stack walk; returns a materialized snapshot. */
   inorder(): IterableIterator<T> {
     const values: T[] = [];
     const stack: TreeNode<T>[] = [];
@@ -120,6 +143,7 @@ export class BinaryTree<T> extends ContainerBase<T> implements TreeLike<T> {
     return this.snapshotIterator(values);
   }
 
+  /** O(n): reversed root-right-left preorder, so one stack plus an array reverse; not lazy. */
   postorder(): IterableIterator<T> {
     const values: T[] = [];
     const stack: TreeNode<T>[] = this._root === null ? [] : [this._root];
@@ -133,6 +157,7 @@ export class BinaryTree<T> extends ContainerBase<T> implements TreeLike<T> {
     return this.snapshotIterator(values);
   }
 
+  /** O(n): BFS with an index cursor instead of Array.shift(); materialized snapshot. */
   levelOrder(): IterableIterator<T> {
     const values: T[] = [];
     const queue: TreeNode<T>[] = this._root === null ? [] : [this._root];
@@ -146,6 +171,11 @@ export class BinaryTree<T> extends ContainerBase<T> implements TreeLike<T> {
     return this.snapshotIterator(values);
   }
 
+  /**
+   * O(n) time, 2n-1 values materialized: iterative frame stack, no recursion. Each
+   * frame re-filters its [left, right] pair per visit, so expect a few small
+   * allocations per node beyond the output array.
+   */
   eulerTour(): IterableIterator<T> {
     const values: T[] = [];
     if (this._root === null) {
@@ -180,6 +210,7 @@ export class BinaryTree<T> extends ContainerBase<T> implements TreeLike<T> {
     return this.snapshotIterator(values);
   }
 
+  /** O(n): preorder walk emitting {value, parent, side} per node, then one JSON.stringify. */
   serialize(): string {
     const nodes: Array<{
       value: T;
@@ -214,6 +245,7 @@ export class BinaryTree<T> extends ContainerBase<T> implements TreeLike<T> {
     return serializeRecord("BinaryTree", { nodes });
   }
 
+  /** O(n) single pass: entries reference earlier indices, so linking needs no search. */
   static deserialize<T>(json: unknown): BinaryTree<T> {
     const record = parseSerialized(json, "BinaryTree");
     const raw = readArray(record, "nodes");
@@ -262,19 +294,23 @@ export class BinaryTree<T> extends ContainerBase<T> implements TreeLike<T> {
     return tree;
   }
 
+  /** O(1): drops the root pointer (no per-node work) and bumps the version. */
   clear(): void {
     this._root = null;
     this.touch();
   }
 
+  /** O(n) preorder; allocates twice (the traversal snapshot, then the spread copy). */
   toArray(): T[] {
     return [...this.preorder()];
   }
 
+  /** Preorder; see preorder(): materialized O(n) snapshot, not lazy. */
   [Symbol.iterator](): IterableIterator<T> {
     return this.preorder();
   }
 
+  /** O(n) with a Set of visited nodes, plus a second full walk for the `size` cross-check. */
   validate(): true | string {
     if (this._root === null) {
       return true;

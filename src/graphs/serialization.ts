@@ -20,6 +20,11 @@ export interface ParsedGraph<V, E> {
   edges: Array<Edge<E>>;
 }
 
+/**
+ * O(V+E): validates and copies every vertex/edge into plain records (dropping undefined
+ * `data` keys), then JSON.stringify. Output size is O(V+E); the caller's `edges` iterable
+ * cost is extra (O(V^2) for AdjacencyMatrix.edges()).
+ */
 export function serializeGraph<V, E>(
   type: string,
   directed: boolean,
@@ -64,6 +69,13 @@ export function serializeGraph<V, E>(
   });
 }
 
+/**
+ * O(V+E) expected: duplicate vertices are caught with a Set and duplicate edges (either
+ * orientation when undirected) with a Map<Vertex, Set<Vertex>>, so each check is O(1)
+ * rather than a scan. Throws TypeError on the first fault. Returns plain arrays; the
+ * representation's deserialize then pays its own insert costs (O(E^2) for EdgeList,
+ * O(V^2) for AdjacencyMatrix, O(V+E) for AdjacencyList and CSR).
+ */
 export function parseGraph<V, E>(
   json: unknown,
   type: string,

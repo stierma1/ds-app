@@ -4,6 +4,17 @@ import { SeparateChaining } from "./separate-chaining.ts";
 import { parseMap, serializeMap } from "./serialization.ts";
 import type { UniversalHashOptions } from "./types.ts";
 
+/**
+ * SeparateChaining whose bucket index comes from a seeded multiply-shift hash:
+ * (a * (h ^ mix32(seed))) >>> (32 - log2(capacity)), with the odd multiplier `a` drawn from a
+ * PRNG seeded by `seed`. Different seeds pick different members of the family, so a key set that
+ * clusters under one seed is spread under another; with the default seed the function is fixed,
+ * so pass a random `seed` to get the randomized guarantee. Same expected O(1) operations and
+ * O(n + capacity) doubling as SeparateChaining, plus one imul per hash. Two costs to know: the
+ * stored hash is capacity-dependent, so every rehash must recompute it; and it only has
+ * log2(capacity) bits, so every entry in a bucket passes the hash pre-check and reaches `equals`
+ * (a chain scan calls `equals` once per entry rather than once per true collision).
+ */
 export class UniversalHashing<K, V> extends SeparateChaining<K, V> {
   private readonly _seed: number;
   private readonly _multiplier: number;
@@ -21,6 +32,7 @@ export class UniversalHashing<K, V> extends SeparateChaining<K, V> {
     this._multiplier = multiplier;
   }
 
+  /** O(n + capacity); records the seed so deserialize reproduces the same layout. */
   override serialize(): string {
     return serializeMap(
       "UniversalHashing",
@@ -31,6 +43,10 @@ export class UniversalHashing<K, V> extends SeparateChaining<K, V> {
     );
   }
 
+  /**
+   * O(1) on top of the base hash: multiply-shift down to log2(capacity) bits, so the result is
+   * already the bucket index.
+   */
   protected override hashKey(key: K): number {
     assertDefined(key, "key");
     const base = this._hash(key);
@@ -45,6 +61,7 @@ export class UniversalHashing<K, V> extends SeparateChaining<K, V> {
     return "UniversalHashing";
   }
 
+  /** O(n) expected re-insertion with the stored seed, then an O(n + capacity) validate. */
   static override deserialize<K, V>(
     json: unknown,
     options: UniversalHashOptions<K> = {},

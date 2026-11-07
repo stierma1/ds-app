@@ -22,6 +22,22 @@ interface Bucket<K, V> {
   entries: Array<ExtendibleEntry<K, V>>;
 }
 
+/**
+ * Extendible hashing: a directory of 2^globalDepth pointers into buckets of up to bucketSize
+ * (default 4) entries, indexed by the low globalDepth bits of the hash; several directory slots may
+ * share one bucket (its localDepth says how many bits it really uses). Growth is local: a full
+ * bucket splits in two on the next hash bit, and the directory doubles only when the splitting
+ * bucket already uses every directory bit. No full-table rehash ever happens and `loadFactor` is
+ * stored but ignored, so the worst single insert is O(directory) rather than O(n); prefer it when
+ * latency spikes matter more than raw throughput.
+ * Costs to know: every split (doubling or not) scans the whole directory to repoint slots, so a
+ * split is O(2^globalDepth); delete also scans the directory to find the bucket's prefix and try
+ * merging it with its buddy, making delete O(2^globalDepth) rather than O(1). A bucket whose keys
+ * all share the next hash bit cannot split and simply grows past bucketSize (lookups become
+ * O(bucket)); skewed hashes can double the directory repeatedly, up to depth 30. The directory
+ * never shrinks, but buddy buckets re-merge when their combined entries fit in one bucket.
+ * Iteration is a snapshot (see HashTableBase).
+ */
 export class ExtendibleHashing<K, V> extends HashTableBase<K, V> {
   private _globalDepth: number;
   private _directory: Array<Bucket<K, V>>;
@@ -36,10 +52,15 @@ export class ExtendibleHashing<K, V> extends HashTableBase<K, V> {
     this._directory = new Array(nextPowerOfTwo(Math.max(1, this._capacity))).fill(initial);
   }
 
+  /** O(1): the directory length (2^globalDepth), not a slot or entry count. */
   override get capacity(): number {
     return this._directory.length;
   }
 
+  /**
+   * O(bucketSize) expected; O(2^globalDepth) when the bucket is full and splits (always a directory
+   * scan, plus a directory copy if globalDepth must grow).
+   */
   set(key: K, value: V): this {
     this.assertStorable(key, value);
     const hash = this.hashKey(key);
@@ -67,6 +88,10 @@ export class ExtendibleHashing<K, V> extends HashTableBase<K, V> {
     return this;
   }
 
+  /**
+   * O(1) directory lookup plus a scan of one bucket: bucketSize entries unless the bucket could not
+   * split.
+   */
   get(key: K): V | undefined {
     const hash = this.hashKey(key);
     const bucket = this.bucketForHash(hash);
@@ -78,10 +103,15 @@ export class ExtendibleHashing<K, V> extends HashTableBase<K, V> {
     return undefined;
   }
 
+  /** Same cost as get(). */
   has(key: K): boolean {
     return this.get(key) !== undefined;
   }
 
+  /**
+   * O(2^globalDepth): after the O(bucketSize) splice it scans the directory to locate the bucket's
+   * buddy and merges them if their union fits in bucketSize.
+   */
   delete(key: K): boolean {
     const hash = this.hashKey(key);
     const bucket = this.bucketForHash(hash);
@@ -98,6 +128,7 @@ export class ExtendibleHashing<K, V> extends HashTableBase<K, V> {
     return false;
   }
 
+  /** O(capacity): rebuilds the initial directory pointing at a single empty bucket. */
   clear(): void {
     this._globalDepth = Math.max(0, Math.ceil(Math.log2(this._capacity)));
     const bucket = this.createBucket(0);
@@ -106,6 +137,10 @@ export class ExtendibleHashing<K, V> extends HashTableBase<K, V> {
     this.touch();
   }
 
+  /**
+   * O(target directory): doubles the directory until it has ceil(capacity / bucketSize) slots so
+   * later splits avoid directory copies; no bucket is split and nothing shrinks.
+   */
   reserve(capacity: number): void {
     this.assertCapacity(capacity);
     const neededBuckets = Math.max(1, Math.ceil(capacity / this._bucketSize));
@@ -119,6 +154,7 @@ export class ExtendibleHashing<K, V> extends HashTableBase<K, V> {
     }
   }
 
+  /** O(2^globalDepth + n) and re-hashes every key; diagnostic only. */
   validate(): true | string {
     const expectedLength = 2 ** this._globalDepth;
     if (this._directory.length !== expectedLength) {
@@ -195,6 +231,10 @@ export class ExtendibleHashing<K, V> extends HashTableBase<K, V> {
     return "ExtendibleHashing";
   }
 
+  /**
+   * O(n) set() calls from scratch. Not reached in practice: reserve() is overridden and loadFactor
+   * is ignored, so nothing in this class triggers it.
+   */
   protected rehash(capacity: number): void {
     const entries = this.collectEntries();
     this._capacity = nextPowerOfTwo(capacity);
@@ -208,6 +248,7 @@ export class ExtendibleHashing<K, V> extends HashTableBase<K, V> {
     this.touch();
   }
 
+  /** O(2^globalDepth + n): stores every distinct bucket plus the directory's bucket indices. */
   override serialize(): string {
     const bucketIndex = new Map<Bucket<K, V>, number>();
     const buckets: Array<{ localDepth: number; entries: Array<[K, V, number]> }> = [];
@@ -307,6 +348,10 @@ export class ExtendibleHashing<K, V> extends HashTableBase<K, V> {
     this._size = count;
   }
 
+  /**
+   * O(2^globalDepth + n) from a layout payload; otherwise O(n) re-insertion. Followed by an
+   * O(2^globalDepth + n) validate.
+   */
   static deserialize<K, V>(
     json: unknown,
     options: ExtendibleHashOptions<K> = {},
@@ -361,6 +406,10 @@ export class ExtendibleHashing<K, V> extends HashTableBase<K, V> {
     return false;
   }
 
+  /**
+   * Split cost: an O(2^globalDepth) directory scan every time, plus a full directory copy when
+   * localDepth == globalDepth; the entries are then partitioned on one bit (O(bucketSize)).
+   */
   private splitBucket(bucket: Bucket<K, V>): void {
     const oldDepth = bucket.localDepth;
     const newDepth = oldDepth + 1;
@@ -388,6 +437,10 @@ export class ExtendibleHashing<K, V> extends HashTableBase<K, V> {
     buddy.entries = move;
   }
 
+  /**
+   * Merge check on every delete from a bucket with localDepth > 0: O(2^globalDepth) to find the
+   * prefix and again to repoint the buddy's slots; merges only when both halves fit in one bucket.
+   */
   private tryMerge(bucket: Bucket<K, V>): void {
     if (bucket.localDepth <= 0) {
       return;

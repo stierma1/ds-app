@@ -181,3 +181,32 @@ test("BinarySearchTree differential test against sorted arrays", () => {
     );
   }
 });
+
+test("BinarySearchTree rejects stale node handles in O(1)", () => {
+  const tree = new BinarySearchTree<number, string>();
+  for (const key of [5, 3, 8, 1, 4, 7, 9]) {
+    tree.set(key, `v${key}`);
+  }
+  const other = new BinarySearchTree<number, string>();
+  other.set(1, "x");
+  assert.throws(() => tree.successorNode(other.root!), TypeError);
+  // A leaf removed by delete() is no longer owned.
+  const leaf = tree.minNode()!;
+  assert.deepEqual(leaf.value, [1, "v1"]);
+  tree.delete(1);
+  assert.throws(() => tree.successorNode(leaf), TypeError);
+  // Deleting a two-child node detaches the successor's object, not the victim's.
+  const root = tree.root!;
+  const successor = tree.successorNode(root)!;
+  tree.delete(root.value[0]);
+  assert.deepEqual(tree.root!.value, successor.value);
+  assert.equal(tree.root, root);
+  assert.throws(() => tree.predecessorNode(successor), TypeError);
+  assert.equal(tree.validate(), true);
+  // clear() invalidates every outstanding handle without visiting nodes.
+  const survivor = tree.maxNode()!;
+  tree.clear();
+  assert.throws(() => tree.predecessorNode(survivor), TypeError);
+  tree.set(42, "new");
+  assert.equal(tree.successorNode(tree.root!), null);
+});

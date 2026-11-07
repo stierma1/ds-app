@@ -4,6 +4,7 @@ import type { HashOptions } from "./types.ts";
 const FNV_OFFSET = 2166136261;
 const FNV_PRIME = 16777619;
 
+/** O(1): 32-bit avalanche finalizer (two imul/xor-shift rounds) used to spread weak hashes. */
 export function mix32(value: number): number {
   let x = value >>> 0;
   x ^= x >>> 16;
@@ -14,6 +15,7 @@ export function mix32(value: number): number {
   return x >>> 0;
 }
 
+/** O(length): FNV-1a over UTF-16 code units, one xor and one imul per character. */
 export function hashString(value: string): number {
   let hash = FNV_OFFSET;
   for (let index = 0; index < value.length; index++) {
@@ -110,10 +112,24 @@ function hashValueInternal(value: unknown, seen: Set<object>): number {
   }
 }
 
+/**
+ * Structural default hash. Cost depends on the key type:
+ * - integers in [-2^31, 2^32): O(1) via mix32; other numbers and bigints are stringified first,
+ *   so they cost O(digits) FNV hashing;
+ * - strings: O(length); booleans, null and Date: O(1);
+ * - arrays: O(total element count), recursive; plain records: O(k log k) to sort the k keys plus
+ *   recursive hashing of every value.
+ * Throws for undefined, symbols, functions, class instances (anything whose prototype is not
+ * Object.prototype or null) and cyclic values, and allocates a Set per top-level call for cycle
+ * detection. Records and arrays hash by content, but the default `equals` is Object.is, so two
+ * equal-content objects land in the same chain yet remain distinct keys; supply `equals` (or key
+ * by a primitive id) for structural keys.
+ */
 export function defaultHash<T>(value: T): number {
   return hashValueInternal(value, new Set());
 }
 
+/** O(1): rejects non-finite results and truncates to uint32 with >>> 0. */
 export function normalizeHash(value: number): number {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     throw new TypeError("Hash function must return a finite number");
@@ -121,6 +137,7 @@ export function normalizeHash(value: number): number {
   return value >>> 0;
 }
 
+/** Returns defaultHash itself, or the user hash wrapped so every call also pays normalizeHash. */
 export function resolveHash<K>(
   hash?: (key: K) => number,
 ): (key: K) => number {
@@ -133,6 +150,7 @@ export function resolveHash<K>(
   return (key: K): number => normalizeHash(hash(key));
 }
 
+/** Defaults to Object.is (NaN equals NaN, +0 differs from -0), not ===. */
 export function resolveEquals<K>(
   equals?: (a: K, b: K) => boolean,
 ): (a: K, b: K) => boolean {
@@ -145,6 +163,7 @@ export function resolveEquals<K>(
   return equals;
 }
 
+/** O(log value) doubling loop; rejects results above 2^30. */
 export function nextPowerOfTwo(value: number): number {
   if (!Number.isInteger(value) || value <= 0) {
     throw new TypeError("capacity must be a positive integer");
@@ -159,6 +178,7 @@ export function nextPowerOfTwo(value: number): number {
   return capacity;
 }
 
+/** Default 16; otherwise rounded up to a power of two so bucket index is `hash & (cap - 1)`. */
 export function resolveCapacity(capacity?: number): number {
   if (capacity === undefined) {
     return 16;
@@ -166,6 +186,7 @@ export function resolveCapacity(capacity?: number): number {
   return nextPowerOfTwo(capacity);
 }
 
+/** Default 0.75. No upper bound here; tables that need loadFactor < 1 assert it themselves. */
 export function resolveLoadFactor(
   loadFactor?: number,
   fallback = 0.75,
@@ -183,6 +204,7 @@ export function assertPositiveInteger(value: number, name: string): void {
   }
 }
 
+/** Convenience bundle of the four resolve* helpers above; O(1). */
 export function resolveOptions<K>(options: HashOptions<K> = {}): {
   hash: (key: K) => number;
   equals: (a: K, b: K) => boolean;
@@ -197,6 +219,10 @@ export function resolveOptions<K>(options: HashOptions<K> = {}): {
   };
 }
 
+/**
+ * Seeded mulberry32-style PRNG: O(1) per draw and deterministic for a given seed. Used to pick
+ * multipliers for UniversalHashing and PerfectHashing, so the same seed reproduces the same layout.
+ */
 export function createRng(seed: number): () => number {
   assertDefined(seed, "seed");
   let state = seed >>> 0;
@@ -209,6 +235,7 @@ export function createRng(seed: number): () => number {
   };
 }
 
+/** O(1); throws unless value is a positive power of two. */
 export function log2Exact(value: number): number {
   if (value <= 0 || (value & (value - 1)) !== 0) {
     throw new RangeError("value must be a positive power of two");

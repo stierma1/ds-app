@@ -25,6 +25,10 @@ type MinCostOptions = GraphAlgorithmOptions & {
   cost?: (edge: Edge) => number;
 };
 
+/**
+ * `algorithm` defaults to "dinic" (O(V^2 E), O(E sqrt V) on unit capacities);
+ * "edmonds-karp" is O(V E^2). Capacities come from edge.weight or `options.weight`.
+ */
 export interface MaxFlowOptions extends GraphAlgorithmOptions {
   algorithm?: "dinic" | "edmonds-karp";
 }
@@ -52,6 +56,7 @@ function addResidual(
   });
 }
 
+/** BFS level graph over edges with residual capacity: O(V+E) per Dinic phase, iterative. */
 function buildLevels(
   residual: ResidualEdge[][],
   source: number,
@@ -73,6 +78,12 @@ function buildLevels(
   return level[sink] === -1 ? undefined : level;
 }
 
+/**
+ * Dinic blocking flow, ITERATIVE: an explicit vertex/edge path stack with a per-vertex
+ * current-arc cursor so each residual edge is examined O(1) times per phase, and a dead
+ * end is pruned by setting its level to -1. After an augmentation the path is truncated at
+ * the first saturated edge rather than restarted from the source. O(V*E) per phase.
+ */
 function blockingFlow(
   residual: ResidualEdge[][],
   level: Int32Array,
@@ -132,6 +143,10 @@ function blockingFlow(
   return flow;
 }
 
+/**
+ * O(V+E): fresh residual graph (two ResidualEdge objects per edge) built on every call;
+ * requires a directed view and non-negative capacities (RangeError otherwise).
+ */
 function buildFlowResidual(
   graph: Graph,
   source: Vertex,
@@ -155,6 +170,13 @@ function buildFlowResidual(
   return { residual, start, target };
 }
 
+/**
+ * Edmonds-Karp max flow: O(V * E^2) worst case (at most O(V*E) augmentations, each an O(V+E)
+ * BFS), O(V+E) space; iterative, allocating a parent array per augmentation. Requires a
+ * directed graph and non-negative capacities. Simpler than Dinic but asymptotically slower;
+ * prefer it only on tiny graphs or when a shortest-augmenting-path order matters. Returns
+ * 0 immediately when source === sink.
+ */
 export function edmondsKarp(
   graph: Graph,
   source: Vertex,
@@ -216,6 +238,14 @@ export function edmondsKarp(
   return total;
 }
 
+/**
+ * Max flow, default Dinic: O(V^2 * E) general bound; O(E * sqrt(V)) on unit-capacity
+ * networks (bipartite-matching reductions) and O(E * min(V^(2/3), sqrt(E))) on unit networks,
+ * versus O(V * E^2) for `algorithm: "edmonds-karp"`. Each phase is one O(V+E) BFS plus
+ * one iterative blocking flow; there are at most V-1 phases. O(V+E) space; the residual
+ * graph is rebuilt on each call. Requires a directed graph and non-negative capacities.
+ * Real-valued capacities work but can take many more phases than integer ones.
+ */
 export function maxFlow(
   graph: Graph,
   source: Vertex,
@@ -253,6 +283,10 @@ export function maxFlow(
   return total;
 }
 
+/**
+ * Bellman-Ford over the residual graph for Johnson potentials: O(V*E) worst case with early
+ * exit, so negative edge costs are allowed; throws RangeError on a negative-cost cycle.
+ */
 function initialPotentials(
   residual: ResidualEdge[][],
   source: number,
@@ -299,6 +333,16 @@ function initialPotentials(
   return potentials;
 }
 
+/**
+ * Successive shortest paths with Johnson potentials: one O(V*E) Bellman-Ford to initialise
+ * potentials (so negative costs are accepted, negative cycles throw RangeError), then one
+ * binary-heap Dijkstra on reduced costs, O((V+E) log V), per augmenting path. With integer
+ * capacities the number of augmentations is at most the max-flow value F, giving
+ * O(V*E + F*(V+E) log V): pseudo-polynomial, so large capacities on long paths are the
+ * slow case. O(V+E) space. Cost per edge is `options.cost(edge)`, else `edge.data.cost`,
+ * else 0; capacity is the edge weight. Respects `options.directed`: an undirected edge
+ * becomes two independent arcs.
+ */
 export function minCostMaxFlow(
   graph: Graph,
   source: Vertex,

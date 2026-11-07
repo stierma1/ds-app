@@ -21,6 +21,21 @@ interface CuckooEntry<K, V> {
   hash: number;
 }
 
+/**
+ * Bucketized cuckoo hashing: two bucket arrays of `capacity` buckets each, every bucket holding up
+ * to bucketSize (default 4) entries, plus a stash array for entries that could not be placed.
+ * A key lives in one of exactly two buckets (first = hash & mask, second = mix32 of the same hash),
+ * so get/has/delete inspect at most 2 * bucketSize entries plus the stash: O(1) worst case as long
+ * as the stash stays empty. Insert is expected O(1) but, when a bucket is full, evicts a victim and
+ * re-places it in its other bucket, up to maxKicks (default 500) times; after that the entry is
+ * pushed to the stash instead of triggering a rehash, and every stash entry adds one linear
+ * comparison to every later lookup. More than 2 * bucketSize keys with identical hashes therefore
+ * degrade lookups to O(stash).
+ * Grows by doubling only when size exceeds capacity * 2 * bucketSize * min(loadFactor, 0.95); the
+ * rehash re-inserts every entry (O(n) expected, O(n * maxKicks) worst) with fresh hashes. Both
+ * bucket indices derive from one 32-bit hash, so a rehash never changes which keys collide.
+ * Iteration is a snapshot (see HashTableBase).
+ */
 export class CuckooHashing<K, V> extends HashTableBase<K, V> {
   private _buckets1: Array<Array<CuckooEntry<K, V>>>;
   private _buckets2: Array<Array<CuckooEntry<K, V>>>;
@@ -38,6 +53,10 @@ export class CuckooHashing<K, V> extends HashTableBase<K, V> {
     this._buckets2 = this.createBuckets(this._capacity);
   }
 
+  /**
+   * Expected O(1): a two-bucket lookup, then placement with up to maxKicks evictions; hashes the
+   * key twice on a fresh insert. O(n) expected when the insert crosses the resize threshold.
+   */
   set(key: K, value: V): this {
     this.assertStorable(key, value);
     const existing = this.findEntry(key);
@@ -55,14 +74,23 @@ export class CuckooHashing<K, V> extends HashTableBase<K, V> {
     return this;
   }
 
+  /**
+   * O(1) worst case over the two candidate buckets (at most 2 * bucketSize comparisons) plus a
+   * linear scan of the stash.
+   */
   get(key: K): V | undefined {
     return this.findEntry(key)?.value;
   }
 
+  /** Same cost as get(). */
   has(key: K): boolean {
     return this.findEntry(key) !== undefined;
   }
 
+  /**
+   * O(bucketSize + stash): locates the entry, then indexOf + splice within its bucket or the stash.
+   * No tombstones, never shrinks.
+   */
   delete(key: K): boolean {
     const hash = this.hashKey(key);
     const entry = this.findEntryByHash(key, hash);
@@ -95,6 +123,7 @@ export class CuckooHashing<K, V> extends HashTableBase<K, V> {
     return false;
   }
 
+  /** O(capacity): reallocates both bucket arrays and empties the stash. */
   clear(): void {
     this._buckets1 = this.createBuckets(this._capacity);
     this._buckets2 = this.createBuckets(this._capacity);
@@ -103,11 +132,16 @@ export class CuckooHashing<K, V> extends HashTableBase<K, V> {
     this.touch();
   }
 
+  /**
+   * O(n + newCapacity) if growth is needed. It sizes each table to `capacity` / loadFactor BUCKETS,
+   * which is about 2 * bucketSize times more slots than `capacity` entries actually need.
+   */
   reserve(capacity: number): void {
     this.assertCapacity(capacity);
     this.ensureCapacityForEntries(capacity);
   }
 
+  /** O(capacity + n) and re-hashes every key; diagnostic only. */
   validate(): true | string {
     if (this._buckets1.length !== this._capacity || this._buckets2.length !== this._capacity) {
       return "bucket array length does not match capacity";
@@ -172,6 +206,10 @@ export class CuckooHashing<K, V> extends HashTableBase<K, V> {
     return "CuckooHashing";
   }
 
+  /**
+   * O(n) expected, O(n * maxKicks) worst: re-inserts every entry, stash included, with freshly
+   * computed hashes.
+   */
   protected rehash(capacity: number): void {
     const entries = this.collectEntries();
     this._capacity = nextPowerOfTwo(capacity);
@@ -186,6 +224,10 @@ export class CuckooHashing<K, V> extends HashTableBase<K, V> {
     this.touch();
   }
 
+  /**
+   * O(capacity + n) from a layout payload; otherwise O(n) expected re-insertion. Followed by an
+   * O(capacity + n) validate.
+   */
   static deserialize<K, V>(
     json: unknown,
     options: CuckooHashOptions<K> = {},
@@ -219,6 +261,7 @@ export class CuckooHashing<K, V> extends HashTableBase<K, V> {
     return table;
   }
 
+  /** O(capacity + n): the payload lists every bucket of both tables plus the stash. */
   override serialize(): string {
     return serializeMap(
       "CuckooHashing",
@@ -354,6 +397,11 @@ export class CuckooHashing<K, V> extends HashTableBase<K, V> {
     return undefined;
   }
 
+  /**
+   * Kick loop: starts in the table chosen by the hash's low bit, evicts the victim at
+   * (hash >>> 8) % bucket.length when a bucket is full, and after maxKicks parks the entry in the
+   * stash. It never rehashes, so a cuckoo cycle costs maxKicks swaps and one stash entry.
+   */
   private insertEntry(entry: CuckooEntry<K, V>): void {
     let current = entry;
     let useSecond = (current.hash & 1) === 1;
@@ -398,6 +446,7 @@ export class CuckooHashing<K, V> extends HashTableBase<K, V> {
     return true;
   }
 
+  /** Resize trigger: total slots (2 * capacity * bucketSize) times loadFactor capped at 0.95. */
   private resizeThreshold(capacity: number): number {
     return Math.max(
       1,

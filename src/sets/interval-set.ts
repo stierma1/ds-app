@@ -17,23 +17,48 @@ function assertInterval(lo: number, hi: number): void {
   }
 }
 
+/**
+ * Set of integers represented as a sorted JS array of disjoint, non-adjacent closed intervals [lo,
+ * hi]; n below is the number of stored intervals, and `size` counts intervals, not covered
+ * integers.
+ *
+ * Fast: O(log n) containsInterval/hasValue by binary search on interval starts, and a run of
+ * consecutive integers costs one entry regardless of its length (versus one bit per value in BitSet
+ * or one slot per value in SortedArraySet). Slow: addInterval binary-searches the insertion point
+ * and merges the k overlapping or touching intervals in O(k), but the splice shifts O(n) entries;
+ * removeInterval rebuilds the entire array in O(n) even when nothing overlaps. The binary set
+ * operations are built on those primitives and are quadratic in the worst case (see each method).
+ * `has`/`add`/`delete` take an interval and test coverage, not exact-interval identity: has([2, 3])
+ * is true whenever one stored interval contains 2..3.
+ *
+ * Iteration (and intervals()) yields a fresh snapshot of [lo, hi] pairs in ascending order and
+ * throws ConcurrentModificationError if the set is mutated mid-iteration.
+ */
 export class IntervalSet
   extends ContainerBase<Interval>
   implements SetLike<Interval> {
   private _intervals: Array<[number, number]> = [];
 
+  /** Alias for addInterval: O(log n + k) plus an O(n) splice. */
   add(value: Interval): boolean {
     return this.addInterval(value[0], value[1]);
   }
 
+  /** Alias for removeInterval: O(n) rebuild. */
   delete(value: Interval): boolean {
     return this.removeInterval(value[0], value[1]);
   }
 
+  /** Alias for containsInterval: O(log n). True when a single stored interval covers [lo, hi]. */
   has(value: Interval): boolean {
     return this.containsInterval(value[0], value[1]);
   }
 
+  /**
+   * O(log n) to locate, O(k) to absorb the k overlapping or adjacent intervals, plus O(n) shifting
+   * from the splice. Returns false after only O(log n), with no mutation, when the range is already
+   * covered. Touching intervals ([1, 2] and [3, 4]) are coalesced.
+   */
   addInterval(lo: number, hi: number): boolean {
     assertInterval(lo, hi);
     if (this.containsInterval(lo, hi)) {
@@ -57,6 +82,10 @@ export class IntervalSet
     return true;
   }
 
+  /**
+   * O(n): rebuilds the whole interval array, splitting at most two intervals, even when the range
+   * touches nothing. Returns false when nothing changed.
+   */
   removeInterval(lo: number, hi: number): boolean {
     assertInterval(lo, hi);
     const result: Array<[number, number]> = [];
@@ -83,6 +112,7 @@ export class IntervalSet
     return true;
   }
 
+  /** O(log n): binary search for the interval starting at or before `lo`, then one bound check. */
   containsInterval(lo: number, hi: number): boolean {
     assertInterval(lo, hi);
     const index = this.lowerBound(lo);
@@ -93,6 +123,7 @@ export class IntervalSet
     return candidate >= 0 && this._intervals[candidate][1] >= hi;
   }
 
+  /** O(log n): the same search as containsInterval for a single integer. */
   hasValue(value: number): boolean {
     if (!Number.isInteger(value)) {
       throw new TypeError("value must be an integer");
@@ -105,10 +136,15 @@ export class IntervalSet
     return candidate >= 0 && this._intervals[candidate][1] >= value;
   }
 
+  /** O(n) snapshot copy up front; identical to iterating the set directly. */
   intervals(): IterableIterator<Interval> {
     return this.snapshotIterator(this.toArray());
   }
 
+  /**
+   * O(n log n) to re-add this set's intervals in order, plus O(n + m) per interval of `other` (each
+   * may splice the growing array and merge neighbors), so O(m(n + m)) worst case.
+   */
   union(other: Iterable<Interval>): IntervalSet {
     const result = this.cloneEmpty();
     for (const interval of this) {
@@ -120,6 +156,10 @@ export class IntervalSet
     return result;
   }
 
+  /**
+   * O(m^2) worst case to normalize `other` into a sorted lookup, then a linear two-pointer sweep
+   * over both interval lists, O(n + m), with results appended in order.
+   */
   intersection(other: Iterable<Interval>): IntervalSet {
     const lookup = this.buildLookup(other);
     const result = this.cloneEmpty();
@@ -142,6 +182,10 @@ export class IntervalSet
     return result;
   }
 
+  /**
+   * O(n log n) to copy this set, then one O(n) removeInterval rebuild per interval of `other`: O(n
+   * log n + m n).
+   */
   difference(other: Iterable<Interval>): IntervalSet {
     const result = this.cloneEmpty();
     for (const interval of this) {
@@ -153,6 +197,10 @@ export class IntervalSet
     return result;
   }
 
+  /**
+   * Composed as union(other).difference(intersection(other)), so it pays for all three and
+   * allocates several intermediate sets: O((n + m)^2) worst case.
+   */
   symmetricDifference(other: Iterable<Interval>): IntervalSet {
     const lookup = this.buildLookup(other);
     const union = this.union(lookup);
@@ -160,6 +208,10 @@ export class IntervalSet
     return union.difference(intersection);
   }
 
+  /**
+   * O(m^2) worst case to normalize `other` into a lookup, then one O(log m) coverage probe per
+   * interval of this set.
+   */
   isSubsetOf(other: Iterable<Interval>): boolean {
     const lookup = this.buildLookup(other);
     for (const interval of this) {
@@ -170,6 +222,10 @@ export class IntervalSet
     return true;
   }
 
+  /**
+   * O(m log n): one coverage probe per interval of `other`, short-circuiting, no allocation. The
+   * cheapest comparison method.
+   */
   isSupersetOf(other: Iterable<Interval>): boolean {
     for (const interval of other) {
       if (!this.containsInterval(interval[0], interval[1])) {
@@ -179,25 +235,36 @@ export class IntervalSet
     return true;
   }
 
+  /**
+   * O(m^2) worst case to normalize `other`, then an interval-count check and two subset passes, O(n
+   * log m + m log n).
+   */
   equals(other: Iterable<Interval>): boolean {
     const lookup = this.buildLookup(other);
     return this._size === lookup.size && this.isSubsetOf(lookup) && lookup.isSubsetOf(this);
   }
 
+  /** O(1). */
   clear(): void {
     this._intervals = [];
     this._size = 0;
     this.touch();
   }
 
+  /** O(n): copies every pair into a fresh readonly tuple, ascending. */
   toArray(): Interval[] {
     return this._intervals.map(([lo, hi]) => [lo, hi] as const);
   }
 
+  /**
+   * O(n) snapshot up front via toArray, then O(1) per step; throws ConcurrentModificationError if
+   * the set is mutated during iteration.
+   */
   [Symbol.iterator](): IterableIterator<Interval> {
     return this.snapshotIterator(this.toArray());
   }
 
+  /** O(n): checks ordering, orientation, and that no two neighbors overlap or touch. */
   validate(): true | string {
     if (this._intervals.length !== this._size) {
       return `size ${this._size} does not match interval count ${this._intervals.length}`;
@@ -223,10 +290,15 @@ export class IntervalSet
     return true;
   }
 
+  /** O(n). */
   serialize(): string {
     return serializeRecord("IntervalSet", { values: this.toArray() });
   }
 
+  /**
+   * O(n log n) for a sorted, normalized payload (each addInterval appends); O(n^2) worst case for
+   * an unsorted one.
+   */
   static deserialize(json: unknown): IntervalSet {
     const record = parseSerialized(json, "IntervalSet");
     const raw = readArray(record, "values");
@@ -253,6 +325,10 @@ export class IntervalSet
     return new IntervalSet();
   }
 
+  /**
+   * Design note: `other` is normalized into a fresh IntervalSet by repeated addInterval, O(m) each
+   * in the worst case, which is why the comparison and intersection methods are quadratic in m.
+   */
   private buildLookup(other: Iterable<Interval>): IntervalSet {
     const lookup = this.cloneEmpty();
     for (const interval of other) {

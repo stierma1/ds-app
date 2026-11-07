@@ -7,18 +7,35 @@ interface UnionNode<E> {
   size: number;
 }
 
+/**
+ * Disjoint-set forest over arbitrary values, backed by a Map from value to {parent, rank, size}
+ * with Object.is identity.
+ *
+ * find performs full two-pass path compression (every node on the walked path is re-pointed at the
+ * root) and union links by rank, so find/union/connected/sizeOf run in O(alpha(n)) amortized,
+ * effectively constant; a single uncompressed find is at most O(log n) thanks to the rank bound.
+ * Each step is a Map lookup rather than an array index, so constants are higher than an
+ * integer-indexed forest. Siblings: WeightedUnionFind drops compression (O(log n) worst case,
+ * non-mutating find), QuickFind has O(1) find but O(n) union, QuickUnion has O(n) worst-case find.
+ *
+ * There is no element removal and no version tracking: values() is a live Map iterator, not a
+ * snapshot, and find mutates parent pointers even though it is a query.
+ */
 export class UnionFind<E> {
   private _nodes = new Map<E, UnionNode<E>>();
   private _setCount = 0;
 
+  /** O(1). */
   get setCount(): number {
     return this._setCount;
   }
 
+  /** O(1). */
   get size(): number {
     return this._nodes.size;
   }
 
+  /** O(1) expected (one Map insert); no-op when the value is already present. */
   makeSet(value: E): void {
     assertDefined(value, "value");
     if (this._nodes.has(value)) {
@@ -28,6 +45,11 @@ export class UnionFind<E> {
     this._setCount++;
   }
 
+  /**
+   * O(alpha(n)) amortized, O(log n) worst case for a single call. Two passes: walk to the root,
+   * then re-point every node on the path at it (full compression). Throws RangeError for unknown
+   * values.
+   */
   find(value: E): E {
     const node = this._nodes.get(value);
     if (node === undefined) {
@@ -46,6 +68,11 @@ export class UnionFind<E> {
     return root;
   }
 
+  /**
+   * O(alpha(n)) amortized: two finds plus an O(1) relink. Union by rank: the lower-rank root hangs
+   * under the higher; on a tie `a`'s root wins and its rank grows. Returns false when already
+   * joined.
+   */
   union(a: E, b: E): boolean {
     const rootA = this.find(a);
     const rootB = this.find(b);
@@ -75,18 +102,28 @@ export class UnionFind<E> {
     return true;
   }
 
+  /** O(alpha(n)) amortized: two finds. */
   connected(a: E, b: E): boolean {
     return this.same(this.find(a), this.find(b));
   }
 
+  /**
+   * O(alpha(n)) amortized: one find plus a Map lookup; sizes are maintained at roots, never
+   * recounted.
+   */
   sizeOf(value: E): number {
     return this._nodes.get(this.find(value))!.size;
   }
 
+  /** O(1): live iterator over the Map's keys in insertion order; not a snapshot. */
   values(): IterableIterator<E> {
     return this._nodes.keys();
   }
 
+  /**
+   * O(n alpha(n)): one find per element (fully compressing every path as a side effect) plus fresh
+   * arrays for every group.
+   */
   groups(): E[][] {
     const groups = new Map<E, E[]>();
     for (const value of this._nodes.keys()) {
@@ -101,11 +138,16 @@ export class UnionFind<E> {
     return [...groups.values()];
   }
 
+  /** O(n): Map.clear. */
   clear(): void {
     this._nodes.clear();
     this._setCount = 0;
   }
 
+  /**
+   * O(n log n): walks every parent chain without compressing and checks the rank and size
+   * invariants.
+   */
   validate(): true | string {
     for (const [value, node] of this._nodes) {
       if (value === undefined) {
@@ -154,10 +196,12 @@ export class UnionFind<E> {
     return true;
   }
 
+  /** O(n alpha(n)): serializes the output of groups(). */
   serialize(): string {
     return serializeSets("UnionFind", this.groups());
   }
 
+  /** O(n alpha(n)): rebuilds through makeSet and union, then validates. */
   static deserialize<E>(json: unknown): UnionFind<E> {
     const groups = deserializeSets(json, "UnionFind");
     const forest = new UnionFind<E>();
