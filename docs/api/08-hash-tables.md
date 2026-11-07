@@ -1,6 +1,6 @@
 # Part 8 — Hash Tables
 
-**Module:** `ds-app/hash-tables` · **Source:** `src/hash-tables/` · **Status:** planned
+**Module:** `ds-app/hash-tables` · **Source:** `src/hash-tables/` · **Status:** done
 
 ## Scope
 
@@ -72,6 +72,7 @@ a uniform hash function.
 | `UniversalHashing` | O(1) expected, O(n) worst | O(1) expected, O(n) worst | O(1) expected, O(n) worst | O(n + m) | O(n + m) |
 | `PerfectHashing` (static) | O(1) worst | — | — | O(n) | O(n) |
 | `ExtendibleHashing` | O(1) expected, O(n) worst | O(1) amortized expected | O(1) expected | O(n + directory) | O(n + directory) |
+| `OrderedHashMap` | O(1 + α) avg, O(n) worst | O(1 + α) avg, O(n) worst | O(1 + α) avg, O(n) worst | O(n) insertion order | O(n) |
 
 ### Notes
 
@@ -97,6 +98,8 @@ a uniform hash function.
 - `ExtendibleHashing` grows a directory of bucket pointers instead of rehashing
   everything; local depth controls splits.
 - `HashMap` defaults to `SeparateChaining`; `HashSet` reuses the same options.
+- `OrderedHashMap` preserves insertion order for iteration and serialization; updating
+  an existing key does not move it, while deletion and re-insertion append it.
 
 ## Example
 

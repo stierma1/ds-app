@@ -1,6 +1,6 @@
 # Part 24 — Sets
 
-**Module:** `ds-app/sets` · **Source:** `src/sets/` · **Status:** planned
+**Module:** `ds-app/sets` · **Source:** `src/sets/` · **Status:** done
 
 ## Scope
 
@@ -82,8 +82,8 @@ and `validate()` directly instead of implementing `Container`.
 - Set algebra returns a new set; operands are unchanged.
 - `BitSet` uses an integer universe `[0, U)`; out-of-range values throw
   `RangeError`.
-- `IntervalSet` stores disjoint closed intervals and merges adjacent or
-  overlapping ranges on insertion.
+- `IntervalSet` stores disjoint inclusive integer intervals `[lo, hi]` and merges
+  adjacent or overlapping ranges on insertion. Endpoints must be integers.
 - `DisjointSet` is a separate interface: `union` returns `true` only when two
   different sets were merged; `find` returns the representative.
 - Bloom filters may report false positives but never false negatives; `size` is
@@ -112,6 +112,9 @@ and `validate()` directly instead of implementing `Container`.
 | `BitSet` | O(1) | O(1) | O(U / w) | O(U / w), O(popcount) with rank | O(U / w) |
 | `IntervalSet` | O(r log n) worst add, O(log n) delete | O(log n) | O((n + m) log(n + m)) | O(n) | O(n) |
 | `UnionFind` | O(α(n)) amortized `makeSet` / `union` | O(α(n)) amortized `find` / `connected` | — | O(n) | O(n) |
+| `QuickFind` | O(n) `union`, O(1) `find` | O(1) `find` | — | O(n) | O(n) |
+| `QuickUnion` | O(n) worst `union` / `find` | O(n) worst `find` | — | O(n) | O(n) |
+| `WeightedUnionFind` | O(log n) `union` | O(log n) `find` | — | O(n) | O(n) |
 | `BloomFilter` | O(k) add, no delete | O(k) | — | — | O(b) bits |
 | `CountingBloomFilter` | O(k) add/delete | O(k) | — | — | O(b) counters |
 | `PartitionedBloomFilter` | O(k) add, no delete | O(k) | — | — | O(b) bits |
@@ -135,8 +138,10 @@ operations are amortized with union by rank and path compression.
   overlapping/adjacent intervals in `O(r log n)` worst case and `O(log n)`
   amortized over a sequence, where `r` is the number of merged intervals.
   Deletion may split one interval into two.
-- **Union-find:** `makeSet` creates a singleton; `find` follows parent pointers
-  with path compression; `union` uses union by rank/size.
+- **Union-find:** `UnionFind` is the production implementation: `makeSet` creates a
+  singleton; `find` follows parent pointers with path compression; `union` uses
+  union by rank/size. `QuickFind`, `QuickUnion`, and `WeightedUnionFind` are the
+  classic textbook variants kept for comparison and teaching.
 - **Bloom filter:** `k` independent hash functions set `k` bits. The false
   positive rate is approximately `(1 - e^{-kn/b})^k`; there are no false
   negatives and deletion is not supported.
@@ -182,8 +187,8 @@ uf.sizeOf('b');            // 2
 - `IntervalSet` merges and splits correctly, including touching endpoints.
 - `mergeSortedRuns` matches a concatenate-sort-dedupe reference for random run
   counts, empty runs, and duplicates within and across runs.
-- Union-find matches a naive connected-component model; path compression and
-  union by rank are verified structurally.
+- Every union-find variant matches a naive connected-component model; path
+  compression and union by rank are verified structurally for `UnionFind`.
 - Bloom filters never produce false negatives for values that were inserted.
   Counting and cuckoo filters are tested with deletions only of inserted
   values.

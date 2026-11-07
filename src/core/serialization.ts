@@ -47,7 +47,7 @@ export function parseSerialized(
   return record as SerializedRecord;
 }
 
-export function readArray(record: SerializedRecord, key: string): unknown[] {
+export function readArray(record: Record<string, unknown>, key: string): unknown[] {
   const value = record[key];
   if (!Array.isArray(value)) {
     throw new TypeError(`${key} must be an array`);

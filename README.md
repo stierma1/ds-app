@@ -179,8 +179,8 @@ counted through the comparator):
 | 7 | Advanced structures | 25-38 | v0.7 |
 | 8 | Applications | A1-A15 | v1.0 |
 
-Status legend: `planned` · `in progress` · `done`. Current status: **Phase 0,
-in progress** (repository bootstrap and this roadmap).
+Status legend: `planned` · `in progress` · `done`. Current status: **Phase 2,
+done** (hashing and sets); Phase 3 is next.
 
 Dependencies flow left to right and top to bottom: trees before search trees,
 heaps before priority-queue variants, spatial indexes before GIS and collision
@@ -229,6 +229,10 @@ randomized cross-checks.
 **Exit criteria:** load-factor sweeps are benchmarked; adversarial key sets
 cannot force pathological behavior beyond documented bounds; union-find matches
 inverse-Ackermann expectations in practice.
+
+**Status:** done. Run `npm run benchmark:phase2` for the load-factor sweep;
+adversarial constant-hash and union-find depth checks live in
+`tests/unit/phase2-exit.test.ts`.
 
 ---
 

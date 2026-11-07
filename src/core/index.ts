@@ -14,6 +14,7 @@ export {
   UnsupportedError,
 } from "./errors.ts";
 export type { OrderedMap, RangeOptions } from "./ordered-map.ts";
+export type { SetLike } from "./set.ts";
 export {
   parseSerialized,
   readArray,

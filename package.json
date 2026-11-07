@@ -9,7 +9,9 @@
     ".": "./src/index.ts",
     "./core": "./src/core/index.ts",
     "./graphs": "./src/graphs/index.ts",
+    "./hash-tables": "./src/hash-tables/index.ts",
     "./lists": "./src/lists/index.ts",
+    "./sets": "./src/sets/index.ts",
     "./trees": "./src/trees/index.ts"
   },
   "files": [
@@ -17,7 +19,8 @@
   ],
   "scripts": {
     "test": "node --test tests/unit/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "benchmark:phase2": "node benchmarks/phase2-load-factor.ts"
   },
   "engines": {
     "node": ">=22.18"
