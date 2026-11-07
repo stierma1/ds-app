@@ -1,6 +1,6 @@
 # Part 2 — Trees
 
-**Module:** `ds-app/trees` · **Source:** `src/trees/` · **Status:** planned
+**Module:** `ds-app/trees` · **Source:** `src/trees/` · **Status:** in progress
 
 ## Scope
 

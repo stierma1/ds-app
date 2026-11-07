@@ -231,6 +231,44 @@ export class SinglyLinkedList<T> extends ContainerBase<T> implements ListLike<T>
     return this;
   }
 
+  merge(other: Iterable<T>): this {
+    const values = [...other];
+    for (const value of values) {
+      assertDefined(value);
+    }
+    for (const value of values) {
+      this.push(value);
+    }
+    return this;
+  }
+
+  split(index: number): SinglyLinkedList<T> {
+    assertInteger(index);
+    if (index < 0 || index > this._size) {
+      throw new RangeError("index is out of range");
+    }
+    const right = new SinglyLinkedList<T>();
+    if (index === 0) {
+      right._head = this._head;
+      right._tail = this._tail;
+      right._size = this._size;
+      this._head = null;
+      this._tail = null;
+      this._size = 0;
+    } else if (index < this._size) {
+      const leftLast = this.nodeAt(index - 1)!;
+      right._head = leftLast.next;
+      right._tail = this._tail;
+      right._size = this._size - index;
+      leftLast.next = null;
+      this._tail = leftLast;
+      this._size = index;
+    }
+    this.touch();
+    right.touch();
+    return right;
+  }
+
   serialize(): string {
     return serializeValues("SinglyLinkedList", this.toArray());
   }
@@ -516,6 +554,54 @@ export class DoublyLinkedList<T> extends ContainerBase<T> implements ListLike<T>
     return this;
   }
 
+  merge(other: Iterable<T>): this {
+    const values = [...other];
+    for (const value of values) {
+      assertDefined(value);
+    }
+    for (const value of values) {
+      this.push(value);
+    }
+    return this;
+  }
+
+  split(index: number): DoublyLinkedList<T> {
+    assertInteger(index);
+    if (index < 0 || index > this._size) {
+      throw new RangeError("index is out of range");
+    }
+    const right = new DoublyLinkedList<T>();
+    if (index === 0) {
+      const first = this._head.next;
+      const last = this._head.prev;
+      if (this._size > 0) {
+        right._head.next = first;
+        first.prev = right._head;
+        right._head.prev = last;
+        last.next = right._head;
+        right._size = this._size;
+      }
+      this._head.next = this._head;
+      this._head.prev = this._head;
+      this._size = 0;
+    } else if (index < this._size) {
+      const start = this.nodeAt(index);
+      const leftLast = start.prev;
+      const last = this._head.prev;
+      right._head.next = start;
+      start.prev = right._head;
+      right._head.prev = last;
+      last.next = right._head;
+      right._size = this._size - index;
+      this._head.prev = leftLast;
+      leftLast.next = this._head;
+      this._size = index;
+    }
+    this.touch();
+    right.touch();
+    return right;
+  }
+
   serialize(): string {
     return serializeValues("DoublyLinkedList", this.toArray());
   }
@@ -610,6 +696,18 @@ export class CircularList<T> extends DoublyLinkedList<T> {
       list.push(value as T);
     }
     return list;
+  }
+
+  override split(index: number): CircularList<T> {
+    assertInteger(index);
+    const values = this.toArray();
+    if (index < 0 || index > values.length) {
+      throw new RangeError("index is out of range");
+    }
+    const right = new CircularList<T>();
+    right._resetFrom(values.slice(index));
+    this._resetFrom(values.slice(0, index));
+    return right;
   }
 
   rotate(steps: number): this {

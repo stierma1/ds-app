@@ -2,16 +2,20 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   AdjacencyList,
+  aStar,
   articulationPoints,
   bellmanFord,
   bipartiteMatching,
   bridges,
   dijkstra,
+  edmondsKarp as edmondsKarpAlgorithm,
+  eulerPath,
   floydWarshall,
   maxFlow,
   minCostMaxFlow,
   minimumSpanningTree,
   stronglyConnectedComponents,
+  topologicalSort,
   twoSat,
 } from "../../src/index.ts";
 
@@ -389,9 +393,12 @@ test("maxFlow matches an Edmonds-Karp reference", () => {
         }
       }
     }
+    const expected = edmondsKarp(count, edges, 0, count - 1);
+    assert.equal(maxFlow(graph, 0, count - 1), expected);
+    assert.equal(edmondsKarpAlgorithm(graph, 0, count - 1), expected);
     assert.equal(
-      maxFlow(graph, 0, count - 1),
-      edmondsKarp(count, edges, 0, count - 1),
+      maxFlow(graph, 0, count - 1, { algorithm: "edmonds-karp" }),
+      expected,
     );
   }
 });
@@ -491,5 +498,158 @@ test("bellmanFord agrees with Floyd-Warshall on graphs without negative cycles",
     for (let i = 0; i < count; i++) {
       assert.equal(distances.get(i), matrix[0][i]);
     }
+  }
+});
+
+test("topologicalSort agrees with a Kahn reference on random digraphs", () => {
+  const next = random(0x70b1);
+  for (let round = 0; round < 100; round++) {
+    const count = 2 + Math.floor(next() * 6);
+    const graph = new AdjacencyList(true);
+    for (let vertex = 0; vertex < count; vertex++) {
+      graph.addVertex(vertex);
+    }
+    const edges: Array<[number, number]> = [];
+    for (let from = 0; from < count; from++) {
+      for (let to = 0; to < count; to++) {
+        if (from !== to && next() < 0.3) {
+          graph.addEdge(from, to);
+          edges.push([from, to]);
+        }
+      }
+    }
+    const indegree = new Array<number>(count).fill(0);
+    for (const [, to] of edges) {
+      indegree[to]++;
+    }
+    const queue: number[] = [];
+    for (let vertex = 0; vertex < count; vertex++) {
+      if (indegree[vertex] === 0) {
+        queue.push(vertex);
+      }
+    }
+    for (let head = 0; head < queue.length; head++) {
+      for (const [from, to] of edges) {
+        if (from === queue[head] && --indegree[to] === 0) {
+          queue.push(to);
+        }
+      }
+    }
+    if (queue.length !== count) {
+      assert.throws(() => topologicalSort(graph), RangeError);
+      continue;
+    }
+    const order = topologicalSort(graph);
+    assert.equal(order.length, count);
+    const position = new Map(order.map((vertex, index) => [vertex, index]));
+    for (const [from, to] of edges) {
+      assert.ok(position.get(from)! < position.get(to)!);
+    }
+  }
+});
+
+test("aStar with a zero heuristic agrees with dijkstra on random graphs", () => {
+  const next = random(0xa57a);
+  for (let round = 0; round < 60; round++) {
+    const count = 2 + Math.floor(next() * 5);
+    const graph = new AdjacencyList(true);
+    for (let i = 0; i < count; i++) {
+      graph.addVertex(i);
+    }
+    for (let i = 0; i < count; i++) {
+      for (let j = 0; j < count; j++) {
+        if (i !== j && next() < 0.3) {
+          graph.addEdge(i, j, Math.floor(next() * 10));
+        }
+      }
+    }
+    const target = count - 1;
+    const expected = dijkstra(graph, 0).get(target)!;
+    const result = aStar(graph, 0, target, () => 0);
+    assert.equal(result.distance, expected);
+    if (expected === Infinity) {
+      assert.deepEqual(result.path, []);
+      continue;
+    }
+    assert.equal(result.path[0], 0);
+    assert.equal(result.path[result.path.length - 1], target);
+    let pathWeight = 0;
+    for (let i = 0; i + 1 < result.path.length; i++) {
+      const edge = graph.getEdge(result.path[i], result.path[i + 1]);
+      assert.ok(edge !== undefined);
+      pathWeight += edge.weight;
+    }
+    assert.equal(pathWeight, expected);
+  }
+});
+
+test("eulerPath matches degree and connectivity references", () => {
+  const next = random(0xe071);
+  for (let round = 0; round < 100; round++) {
+    const count = 1 + Math.floor(next() * 5);
+    const graph = new AdjacencyList();
+    for (let vertex = 0; vertex < count; vertex++) {
+      graph.addVertex(vertex);
+    }
+    for (let from = 0; from < count; from++) {
+      for (let to = from + 1; to < count; to++) {
+        if (next() < 0.35) {
+          graph.addEdge(from, to);
+        }
+      }
+    }
+    const edges = [...graph.edges()];
+    const degree = new Array<number>(count).fill(0);
+    const adjacency: number[][] = Array.from({ length: count }, () => []);
+    for (const edge of edges) {
+      const from = edge.from as number;
+      const to = edge.to as number;
+      degree[from]++;
+      degree[to]++;
+      adjacency[from].push(to);
+      adjacency[to].push(from);
+    }
+    const odd = degree.filter((value) => value % 2 === 1).length;
+    let connected = true;
+    if (edges.length > 0) {
+      const start = degree.findIndex((value) => value > 0);
+      const seen = new Uint8Array(count);
+      const queue = [start];
+      seen[start] = 1;
+      for (let head = 0; head < queue.length; head++) {
+        for (const neighbor of adjacency[queue[head]]) {
+          if (seen[neighbor] === 0) {
+            seen[neighbor] = 1;
+            queue.push(neighbor);
+          }
+        }
+      }
+      connected = degree.every(
+        (value, vertex) => value === 0 || seen[vertex] === 1,
+      );
+    }
+    const expected = edges.length === 0 ||
+      (connected && (odd === 0 || odd === 2));
+    const path = eulerPath(graph);
+    if (!expected) {
+      assert.equal(path, undefined);
+      continue;
+    }
+    assert.notEqual(path, undefined);
+    if (edges.length === 0) {
+      assert.deepEqual(path, []);
+      continue;
+    }
+    assert.equal(path!.length, edges.length + 1);
+    const used = new Set<number>();
+    for (let i = 0; i + 1 < path!.length; i++) {
+      const edge = graph.getEdge(path![i], path![i + 1]);
+      assert.ok(edge !== undefined);
+      const id = edges.indexOf(edge);
+      assert.notEqual(id, -1);
+      assert.equal(used.has(id), false);
+      used.add(id);
+    }
+    assert.equal(used.size, edges.length);
   }
 });

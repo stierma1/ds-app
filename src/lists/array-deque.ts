@@ -216,6 +216,29 @@ export class ArrayDeque<T> extends ContainerBase<T> implements Deque<T>, ListLik
     return this;
   }
 
+  merge(other: Iterable<T>): this {
+    const values = [...other];
+    for (const value of values) {
+      assertDefined(value);
+    }
+    for (const value of values) {
+      this.pushBack(value);
+    }
+    return this;
+  }
+
+  split(index: number): ArrayDeque<T> {
+    assertInteger(index);
+    const values = this.toArray();
+    if (index < 0 || index > values.length) {
+      throw new RangeError("index is out of range");
+    }
+    const right = new ArrayDeque<T>();
+    right._resetFrom(values.slice(index));
+    this._resetFrom(values.slice(0, index));
+    return right;
+  }
+
   serialize(): string {
     return serializeValues("ArrayDeque", this.toArray());
   }

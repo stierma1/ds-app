@@ -216,6 +216,29 @@ export class XorLinkedList<T> extends ContainerBase<T> implements ListLike<T> {
     return this;
   }
 
+  merge(other: Iterable<T>): this {
+    const values = [...other];
+    for (const value of values) {
+      assertDefined(value);
+    }
+    for (const value of values) {
+      this.push(value);
+    }
+    return this;
+  }
+
+  split(index: number): XorLinkedList<T> {
+    assertInteger(index);
+    const values = this.toArray();
+    if (index < 0 || index > values.length) {
+      throw new RangeError("index is out of range");
+    }
+    const right = new XorLinkedList<T>();
+    right._resetFrom(values.slice(index));
+    this._resetFrom(values.slice(0, index));
+    return right;
+  }
+
   serialize(): string {
     return serializeValues("XorLinkedList", this.toArray());
   }

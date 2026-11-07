@@ -1,6 +1,6 @@
 # Part 1 — Lists
 
-**Module:** `ds-app/lists` · **Source:** `src/lists/` · **Status:** planned
+**Module:** `ds-app/lists` · **Source:** `src/lists/` · **Status:** in progress
 
 ## Scope
 
@@ -34,6 +34,8 @@ export interface ListLike<T> extends Container<T> {
   splice(start: number, deleteCount?: number, ...items: T[]): T[];
   reverse(): this;
   sort(compare?: Comparator<T>): this;
+  merge(other: Iterable<T>): this;
+  split(index: number): ListLike<T>;
 }
 
 export interface SortedListLike<T> extends Container<T> {
@@ -43,6 +45,7 @@ export interface SortedListLike<T> extends Container<T> {
   min(): T | undefined;
   max(): T | undefined;
   indexOf(value: T): number;
+  merge(other: Iterable<T>): this;
 }
 
 export interface Deque<T> extends Container<T> {
@@ -99,6 +102,12 @@ Shared members (`size`, `isEmpty`, `clear`, `toArray`, iteration, `validate`,
   one difference is that a non-number index throws `TypeError` instead of
   being coerced.
 - Iteration is positional, from index `0` to `size - 1`.
+- `merge(other)` appends every element of `other` in iteration order and returns
+  the list. For `SortedList` and `SortedLinkedList` it merges by comparison order
+  and drops duplicates, like repeated `add`.
+- `split(index)` requires an integer index in `[0, size]`. The receiver keeps
+  elements `[0, index)` and a new list of the same concrete type receives
+  `[index, size)`. Both halves remain valid.
 - `OrderMaintenanceList.insertAfter(null, value)` inserts at the front.
   `compare` returns a negative, zero, or positive number by list position and
   is O(1); a label from another list throws `TypeError`, and a deleted label
@@ -165,8 +174,11 @@ invariant and are intentionally absent.
 | Iterate | O(n) | O(n) |
 | Space | O(n) | O(n) |
 
-Definitions: `n` = number of elements. For `SortedList`, `add` and `remove` pay
-the cost of search plus shifting or relinking. `CursorList` stores links in
+Definitions: `n` = number of elements. `merge` appends `m` values to a
+positional list in O(m), and `split(index)` is O(n) for every positional
+implementation. For `SortedList`, `add` and `remove` pay the cost of search
+plus shifting or relinking; `merge` is O(n + m log m) because the incoming
+values are sorted before the linear merge. `CursorList` stores links in
 parallel arrays and supports handle-based insert/remove without object
 allocation. `XorLinkedList` keeps its nodes in an integer-indexed arena
 (JavaScript has no pointer arithmetic) and stores, per node, the XOR of the

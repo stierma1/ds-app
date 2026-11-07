@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   AdjacencyList,
+  edmondsKarp,
   maxFlow,
   minCostMaxFlow,
   minimumSpanningTree,
@@ -79,11 +80,22 @@ test("maxFlow computes the Edmonds-Karp/Dinic value", () => {
     maxFlow(flowNetwork(), "s", "t", { weight: (edge) => edge.weight }),
     23,
   );
+  assert.equal(
+    maxFlow(flowNetwork(), "s", "t", { algorithm: "edmonds-karp" }),
+    23,
+  );
+  assert.equal(edmondsKarp(flowNetwork(), "s", "t"), 23);
   assert.throws(() => maxFlow(new AdjacencyList(), "s", "t"), TypeError);
+  assert.throws(() => edmondsKarp(new AdjacencyList(), "s", "t"), TypeError);
+  assert.throws(
+    () => maxFlow(flowNetwork(), "s", "t", { algorithm: "bad" as "dinic" }),
+    TypeError,
+  );
 
   const negative = new AdjacencyList(true);
   negative.addEdge("s", "t", -1);
   assert.throws(() => maxFlow(negative, "s", "t"), RangeError);
+  assert.throws(() => edmondsKarp(negative, "s", "t"), RangeError);
 });
 
 test("minCostMaxFlow finds the cheapest maximum flow", () => {

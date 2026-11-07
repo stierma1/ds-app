@@ -17,6 +17,8 @@ export interface ListLike<T> extends Container<T>, Serializable {
   splice(start: number, deleteCount?: number, ...items: T[]): T[];
   reverse(): this;
   sort(compare?: Comparator<T>): this;
+  merge(other: Iterable<T>): this;
+  split(index: number): ListLike<T>;
 }
 
 export interface SortedListLike<T> extends Container<T>, Serializable {
@@ -26,6 +28,7 @@ export interface SortedListLike<T> extends Container<T>, Serializable {
   min(): T | undefined;
   max(): T | undefined;
   indexOf(value: T): number;
+  merge(other: Iterable<T>): this;
 }
 
 export interface Deque<T> extends Container<T>, Serializable {

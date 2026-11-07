@@ -63,6 +63,41 @@ export class SortedList<T> extends ContainerBase<T> implements SortedListLike<T>
     return index < 0 || index >= this._size ? undefined : this._items[index];
   }
 
+  merge(other: Iterable<T>): this {
+    if (other === this) {
+      return this;
+    }
+    const incoming = [...other];
+    for (const value of incoming) {
+      assertDefined(value);
+    }
+    incoming.sort(this.compare);
+    const merged: T[] = [];
+    let left = 0;
+    let right = 0;
+    while (left < this._items.length && right < incoming.length) {
+      const comparison = this.compare(this._items[left], incoming[right]);
+      if (comparison < 0) {
+        merged.push(this._items[left++]);
+      } else if (comparison > 0) {
+        merged.push(incoming[right++]);
+      } else {
+        merged.push(this._items[left++]);
+        right++;
+      }
+    }
+    while (left < this._items.length) {
+      merged.push(this._items[left++]);
+    }
+    while (right < incoming.length) {
+      merged.push(incoming[right++]);
+    }
+    this._items = merged;
+    this._size = merged.length;
+    this.touch();
+    return this;
+  }
+
   serialize(): string {
     return serializeValues("SortedList", this.toArray());
   }
@@ -211,6 +246,53 @@ export class SortedLinkedList<T> extends ContainerBase<T> implements SortedListL
       node = node.next;
     }
     return node !== null && this.compare(node.value, value) === 0 ? index : -1;
+  }
+
+  merge(other: Iterable<T>): this {
+    if (other === this) {
+      return this;
+    }
+    const incoming = [...other];
+    for (const value of incoming) {
+      assertDefined(value);
+    }
+    incoming.sort(this.compare);
+    const current = this.toArray();
+    const merged: T[] = [];
+    let left = 0;
+    let right = 0;
+    while (left < current.length && right < incoming.length) {
+      const comparison = this.compare(current[left], incoming[right]);
+      if (comparison < 0) {
+        merged.push(current[left++]);
+      } else if (comparison > 0) {
+        merged.push(incoming[right++]);
+      } else {
+        merged.push(current[left++]);
+        right++;
+      }
+    }
+    while (left < current.length) {
+      merged.push(current[left++]);
+    }
+    while (right < incoming.length) {
+      merged.push(incoming[right++]);
+    }
+    this._head = null;
+    this._tail = null;
+    this._size = 0;
+    for (const value of merged) {
+      const node = new SortedNode(value);
+      if (this._tail === null) {
+        this._head = node;
+      } else {
+        this._tail.next = node;
+      }
+      this._tail = node;
+      this._size++;
+    }
+    this.touch();
+    return this;
   }
 
   serialize(): string {

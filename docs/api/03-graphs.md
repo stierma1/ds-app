@@ -1,6 +1,6 @@
 # Part 3 — Graphs
 
-**Module:** `ds-app/graphs` · **Source:** `src/graphs/` · **Status:** planned
+**Module:** `ds-app/graphs` · **Source:** `src/graphs/` · **Status:** in progress
 
 ## Scope
 
@@ -54,6 +54,17 @@ export interface GraphAlgorithmOptions {
 export interface MSTOptions extends GraphAlgorithmOptions {
   algorithm?: 'prim' | 'kruskal';
 }
+
+export interface MaxFlowOptions extends GraphAlgorithmOptions {
+  algorithm?: 'dinic' | 'edmonds-karp';
+}
+
+export interface GraphGeneratorOptions {
+  directed?: boolean;
+  weight?: (from: number, to: number) => number;
+  random?: () => number;
+  graph?: Graph;
+}
 ```
 
 `Graph` is a two-element ADT (vertices and edges) and therefore does not
@@ -76,7 +87,8 @@ export function dijkstra(g: Graph, source: Vertex, options?: GraphAlgorithmOptio
 export function bellmanFord(g: Graph, source: Vertex, options?: GraphAlgorithmOptions): Map<Vertex, number>;
 export function floydWarshall(g: Graph, options?: GraphAlgorithmOptions): number[][];
 export function minimumSpanningTree(g: Graph, options?: MSTOptions): Edge[];
-export function maxFlow(g: Graph, source: Vertex, sink: Vertex, options?: GraphAlgorithmOptions): number;
+export function maxFlow(g: Graph, source: Vertex, sink: Vertex, options?: MaxFlowOptions): number;
+export function edmondsKarp(g: Graph, source: Vertex, sink: Vertex, options?: GraphAlgorithmOptions): number;
 export function stronglyConnectedComponents(g: Graph): Vertex[][];
 export function bridges(g: Graph): Edge[];
 export function articulationPoints(g: Graph): Vertex[];
@@ -107,8 +119,39 @@ circuit when one exists, a path otherwise, and `undefined` when neither does.
 shortest path when the heuristic is consistent. `bipartiteMatching` takes the
 left vertex set and returns a maximum matching. `minCostMaxFlow` reads edge
 costs from `options.cost` (default `edge.data.cost`) and capacities from the
-weight selector. `twoSat` takes clauses over literals `±(i + 1)` for variable
-`i` and returns a satisfying assignment or `undefined`.
+weight selector. `maxFlow` uses Dinic by default; pass
+`{ algorithm: 'edmonds-karp' }` or call `edmondsKarp` directly for the
+BFS-augmenting variant. `twoSat` takes clauses over literals `±(i + 1)` for
+variable `i` and returns a satisfying assignment or `undefined`.
+
+### Generators
+
+```ts
+export function pathGraph(order: number, options?: GraphGeneratorOptions): Graph;
+export function cycleGraph(order: number, options?: GraphGeneratorOptions): Graph;
+export function starGraph(order: number, options?: GraphGeneratorOptions): Graph;
+export function completeGraph(order: number, options?: GraphGeneratorOptions): Graph;
+export function completeBipartiteGraph(
+  left: number, right: number, options?: GraphGeneratorOptions,
+): Graph;
+export function gridGraph(
+  rows: number, columns: number, options?: GraphGeneratorOptions,
+): Graph;
+export function randomGraph(
+  order: number, probability: number, options?: GraphGeneratorOptions,
+): Graph;
+export function randomDag(
+  order: number, probability: number, options?: GraphGeneratorOptions,
+): Graph;
+```
+
+Generators label vertices with the integers `0..order-1` and default to an
+undirected `AdjacencyList`. Pass `directed: true` for a directed graph, `graph`
+to populate an existing representation, and `weight` to assign edge weights.
+`randomGraph` adds an edge for each unordered pair independently with the given
+probability (both directions are sampled independently when directed);
+`randomDag` only adds edges from a lower index to a higher index and requires a
+directed target. `random` accepts a seeded source for reproducible graphs.
 
 ## Implementations and complexity
 

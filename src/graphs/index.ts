@@ -24,6 +24,18 @@ export {
   eulerPath,
   stronglyConnectedComponents,
 } from "./connectivity.ts";
-export { maxFlow, minCostMaxFlow } from "./flow.ts";
+export { edmondsKarp, maxFlow, minCostMaxFlow } from "./flow.ts";
+export type { MaxFlowOptions } from "./flow.ts";
+export {
+  completeBipartiteGraph,
+  completeGraph,
+  cycleGraph,
+  gridGraph,
+  pathGraph,
+  randomDag,
+  randomGraph,
+  starGraph,
+} from "./generators.ts";
+export type { GraphGeneratorOptions } from "./generators.ts";
 export { bipartiteMatching } from "./matching.ts";
 export { twoSat } from "./sat.ts";

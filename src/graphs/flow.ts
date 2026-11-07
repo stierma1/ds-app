@@ -25,6 +25,10 @@ type MinCostOptions = GraphAlgorithmOptions & {
   cost?: (edge: Edge) => number;
 };
 
+export interface MaxFlowOptions extends GraphAlgorithmOptions {
+  algorithm?: "dinic" | "edmonds-karp";
+}
+
 function addResidual(
   residual: ResidualEdge[][],
   from: number,
@@ -128,21 +132,18 @@ function blockingFlow(
   return flow;
 }
 
-export function maxFlow(
+function buildFlowResidual(
   graph: Graph,
   source: Vertex,
   sink: Vertex,
   options?: GraphAlgorithmOptions,
-): number {
+): { residual: ResidualEdge[][]; start: number; target: number } {
   if (!effectiveDirected(graph, options)) {
     throw new TypeError("maxFlow requires a directed graph");
   }
   const view = buildAdjacency(graph, true);
   const start = endpointIndex(view, source, "source");
   const target = endpointIndex(view, sink, "sink");
-  if (start === target) {
-    return 0;
-  }
   const residual: ResidualEdge[][] = view.vertices.map(() => []);
   for (const entry of orientedEdges(view)) {
     const capacity = edgeWeight(entry.edge, options);
@@ -150,6 +151,92 @@ export function maxFlow(
       throw new RangeError("maxFlow requires non-negative capacities");
     }
     addResidual(residual, entry.from, entry.to, capacity, 0);
+  }
+  return { residual, start, target };
+}
+
+export function edmondsKarp(
+  graph: Graph,
+  source: Vertex,
+  sink: Vertex,
+  options?: GraphAlgorithmOptions,
+): number {
+  const { residual, start, target } = buildFlowResidual(
+    graph,
+    source,
+    sink,
+    options,
+  );
+  if (start === target) {
+    return 0;
+  }
+  let total = 0;
+  while (true) {
+    const parent = new Array<
+      { from: number; edge: ResidualEdge } | undefined
+    >(residual.length);
+    const seen = new Uint8Array(residual.length);
+    seen[start] = 1;
+    const queue: number[] = [start];
+    let found = false;
+    for (let head = 0; head < queue.length && !found; head++) {
+      const current = queue[head];
+      for (const edge of residual[current]) {
+        if (edge.capacity <= 0 || seen[edge.to] === 1) {
+          continue;
+        }
+        seen[edge.to] = 1;
+        parent[edge.to] = { from: current, edge };
+        if (edge.to === target) {
+          found = true;
+          break;
+        }
+        queue.push(edge.to);
+      }
+    }
+    if (!found) {
+      break;
+    }
+    let bottleneck = Infinity;
+    for (let current = target; current !== start;) {
+      const step = parent[current]!;
+      if (step.edge.capacity < bottleneck) {
+        bottleneck = step.edge.capacity;
+      }
+      current = step.from;
+    }
+    for (let current = target; current !== start;) {
+      const step = parent[current]!;
+      step.edge.capacity -= bottleneck;
+      residual[step.edge.to][step.edge.rev].capacity += bottleneck;
+      current = step.from;
+    }
+    total += bottleneck;
+  }
+  return total;
+}
+
+export function maxFlow(
+  graph: Graph,
+  source: Vertex,
+  sink: Vertex,
+  options?: MaxFlowOptions,
+): number {
+  const algorithm = options?.algorithm ?? "dinic";
+  if (algorithm !== "dinic" && algorithm !== "edmonds-karp") {
+    throw new TypeError("algorithm must be 'dinic' or 'edmonds-karp'");
+  }
+  if (algorithm === "edmonds-karp") {
+    return edmondsKarp(graph, source, sink, options);
+  }
+  const { residual, start, target } = buildFlowResidual(
+    graph,
+    source,
+    sink,
+    options,
+  );
+  if (start === target) {
+    return 0;
   }
   let total = 0;
   while (true) {

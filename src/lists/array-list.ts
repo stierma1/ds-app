@@ -153,6 +153,33 @@ export class ArrayList<T> extends ContainerBase<T> implements ListLike<T> {
     return this;
   }
 
+  merge(other: Iterable<T>): this {
+    const values = [...other];
+    for (const value of values) {
+      assertDefined(value);
+      this._items.push(value);
+    }
+    this._size = this._items.length;
+    if (values.length > 0) {
+      this.touch();
+    }
+    return this;
+  }
+
+  split(index: number): ArrayList<T> {
+    assertInteger(index);
+    if (index < 0 || index > this._size) {
+      throw new RangeError("index is out of range");
+    }
+    const right = new ArrayList<T>();
+    right._items = this._items.splice(index);
+    right._size = right._items.length;
+    this._size = this._items.length;
+    this.touch();
+    right.touch();
+    return right;
+  }
+
   serialize(): string {
     return serializeValues("ArrayList", this.toArray());
   }
