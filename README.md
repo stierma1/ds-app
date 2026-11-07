@@ -23,7 +23,7 @@ for real workloads.
 
 | # | Goal | What it means in practice |
 |---|------|---------------------------|
-| G1 | **Completeness** | All 38 structure parts and 9 application areas below are implemented and exported. |
+| G1 | **Completeness** | All 38 structure parts and 15 application areas below are implemented and exported. |
 | G2 | **Honest complexity** | Each operation documents its asymptotic cost and meets it under a benchmark, including amortized and randomized bounds. |
 | G3 | **Correctness first** | Unit tests, property-based tests against naive reference models, invariant checks, and fuzzing. |
 | G4 | **Idiomatic JavaScript** | ES modules, iterables, `Map`/`Set`-like ergonomics, comparator injection, no hidden globals. |
@@ -113,12 +113,13 @@ src/
   distance-oracles/      # Part 36
   cuttings/        # Part 37
   online-dictionaries/   # Part 38
-  applications/    # A1-A9
+  applications/    # A1-A15
 tests/
   unit/ property/ fuzz/ invariants/
 benchmarks/
 docs/
   api/             # one contract document per part
+  applications/    # one write-up per application
 ```
 
 Each directory exports from an `index.ts`; the package exposes
@@ -148,7 +149,9 @@ The generic interfaces for all 38 parts, with per-implementation complexity
 tables, live in [`docs/api/`](./docs/api/README.md). The shared container,
 ordering, error, ownership, and iteration rules are defined once in the
 [Common API Contract](./docs/api/00-common-contract.md) and referenced by every
-part document.
+part document. Each application in Phase 8 has a write-up in
+[`docs/applications/`](./docs/applications/README.md) covering its use case,
+the approach, and the parts it composes.
 
 ### Complexity documentation format
 
@@ -174,7 +177,7 @@ counted through the comparator):
 | 5 | String indexes | 22, 23 | v0.5 |
 | 6 | Spatial and geometric structures | 15, 16, 17, 18, 19, 20, 21 | v0.6 |
 | 7 | Advanced structures | 25-38 | v0.7 |
-| 8 | Applications | A1-A9 | v1.0 |
+| 8 | Applications | A1-A15 | v1.0 |
 
 Status legend: `planned` · `in progress` · `done`. Current status: **Phase 0,
 in progress** (repository bootstrap and this roadmap).
@@ -207,8 +210,8 @@ and CJS.
 | # | Module | Scope |
 |---|--------|-------|
 | 1 | `lists` | Array-backed and linked lists, singly/doubly/circular/sorted variants, cursor lists, XOR-linked list, ring-buffer deque with stack and queue views, order-maintenance list, generalized/orthogonal lists, list merge and split. |
-| 2 | `trees` | Binary tree representation, traversals (pre/in/post/level, Euler tour), threaded trees, binary search tree, n-ary/general trees, parent pointers, serialization. |
-| 3 | `graphs` | Adjacency list and matrix, BFS/DFS, connected components, topological sort, spanning trees, shortest paths (Dijkstra, Bellman-Ford, Floyd-Warshall), max-flow (Edmonds-Karp, Dinic), graph generators. |
+| 2 | `trees` | Binary tree representation, traversals (pre/in/post/level, Euler tour), threaded trees, binary search tree, n-ary/general trees, parent pointers, static lowest common ancestor (Euler tour + RMQ, binary lifting), serialization. |
+| 3 | `graphs` | Adjacency list and matrix, BFS/DFS, connected components, strongly connected components, bridges and articulation points, topological sort, spanning trees, shortest paths (Dijkstra, Bellman-Ford, Floyd-Warshall, A*), max-flow (Edmonds-Karp, Dinic), min-cost flow, bipartite matching, Euler paths, 2-SAT, graph generators. |
 
 **Exit criteria:** every traversal iterates without recursion where depth could
 overflow the stack; graph algorithms pass against known reference graphs and
@@ -221,7 +224,7 @@ randomized cross-checks.
 | # | Module | Scope |
 |---|--------|-------|
 | 8 | `hash-tables` | Separate chaining, open addressing (linear, quadratic, double hashing), coalesced hashing, Robin Hood, cuckoo hashing, universal and perfect hashing, extendible/dynamic hashing, ordered hash maps. |
-| 24 | `sets` | Set ADT, bitset/bit-vector sets, union-find (quick-find, quick-union, weighted, path compression), interval sets, Bloom filter with counting, partitioned, and scalable variants, cuckoo filter, set operations over sorted runs. |
+| 24 | `sets` | Set ADT, bitset/bit-vector sets, union-find (quick-find, quick-union, weighted, path compression), interval sets, Bloom filter with counting, partitioned, and scalable variants, cuckoo filter, k-way merge and set operations over sorted runs. |
 
 **Exit criteria:** load-factor sweeps are benchmarked; adversarial key sets
 cannot force pathological behavior beyond documented bounds; union-find matches
@@ -233,7 +236,7 @@ inverse-Ackermann expectations in practice.
 
 | # | Module | Scope |
 |---|--------|-------|
-| 6 | `heaps` | Binary and d-ary heaps, bottom-up heap construction, pairing heap, binomial heap, Fibonacci heap, indexed heaps with decrease-key, monotone integer queues (bucket queue, radix heap). |
+| 6 | `heaps` | Binary and d-ary heaps, bottom-up heap construction, pairing heap, binomial heap, Fibonacci heap, indexed heaps with decrease-key, monotone integer queues (bucket queue, radix heap), timer queues (calendar queue, hierarchical timing wheel). |
 | 4 | `leftist-trees` | Leftist, height-biased, and weight-biased heaps; O(log n) meld; min, max, and double-ended variants. |
 | 5 | `skew-heaps` | Self-adjusting meldable heap; amortized O(log n) insert/delete-min; recursive and iterative meld. |
 | 7 | `depq` | Double-ended priority queues: min-max heap, deap, interval heap, symmetric variants, `getMin`/`getMax` in O(1). |
@@ -286,7 +289,7 @@ dependency.
 | 17 | `interval-trees` | Interval tree, segment tree, range tree, priority search tree; stabbing, window, and 3-sided queries; lazy propagation for segment trees; Fenwick tree, sparse table, and range-minimum query. |
 | 18 | `quadtrees` | Region, point, PR, and linear quadtrees; octrees; neighbor finding; spatial decomposition and compression. |
 | 19 | `bsp` | BSP tree construction with splitter selection, front-to-back traversal, CSG operations, visibility ordering, polygon classification. |
-| 20 | `r-trees` | R-tree, R+-tree, R*-tree, Hilbert R-tree, STR bulk loading, insertion/split strategies, range and nearest-neighbor queries. |
+| 20 | `r-trees` | R-tree, R+-tree, R*-tree, Hilbert R-tree, STR bulk loading, insertion/split strategies, range and nearest-neighbor queries, bounding-volume hierarchy (SAH and LBVH builds, refit, ray cast, pairwise overlap). |
 | 21 | `approximate` | Approximate range searching, BBD-tree, annulus queries, epsilon-kernel/core-set constructions, approximation guarantees and error bounds. |
 
 **Exit criteria:** every spatial index passes the same query-conformance suite
@@ -325,21 +328,31 @@ at every event.
 
 ## Phase 8 — Applications (v1.0)
 
+Each application has a write-up in [`docs/applications/`](./docs/applications/README.md).
+
 | # | Module | Scope |
 |---|--------|-------|
 | A1 | `applications/ip-router` | Longest-prefix matching for IPv4/IPv6: binary trie, path-compressed trie, multibit trie, LC-trie, Lulea-style compressed trie, update support. |
 | A2 | `applications/packet-classification` | Multi-dimensional packet classification: hierarchical tries, tuple-space search, decision trees, HiCuts/HyperCuts, incremental updates. |
-| A3 | `applications/web-graph` | Dynamic web graph: compressed adjacency, reachability, PageRank/HITS, incremental link updates, dynamic connectivity. |
-| A4 | `applications/layout` | VLSI layout data structures: corner stitching, trapezoidal decomposition, rectangle overlap and neighbor queries. |
+| A3 | `applications/web-graph` | Dynamic web graph: gap-encoded adjacency over Part 26 Elias-Fano sequences, reachability, PageRank/HITS; link updates and connectivity delegate to Part 29. |
+| A4 | `applications/layout` | VLSI layout data structures: corner stitching, rectangle overlap and neighbor queries; point location uses Part 16's trapezoidal map. |
 | A5 | `applications/floorplan` | Floorplan representation: slicing trees, mosaic floorplans, sequence pairs, area/perimeter optimization hooks. |
 | A6 | `applications/graphics` | Scene graphs, BSP-based visibility, BVH and kd-tree ray-tracing accelerators, spatial hashing. |
-| A7 | `applications/gis` | Spatial indexing for maps: R-tree/quadtree indexes, TIN and DEM helpers, map overlay, nearest-feature queries, coordinate handling. |
+| A7 | `applications/gis` | Spatial indexing for maps: R-tree/quadtree indexes, TIN and DEM helpers, map overlay, nearest-feature queries, geohash and Hilbert tiling over Parts 18 and 20. Projections are out of scope. |
 | A8 | `applications/collision` | Broad phase with BVH, sweep-and-prune, uniform grids, octrees; narrow-phase primitive tests; continuous collision support. |
-| A9 | `applications/computational-geometry` | Convex hull, Delaunay triangulation and Voronoi diagrams, line arrangements, polygon operations, sweep-line primitives. |
+| A9 | `applications/computational-geometry` | Convex hull, Delaunay triangulation and Voronoi diagrams, closest pair, rotating calipers, polygon booleans, point location and proximity queries. PSLG machinery (segment intersection, triangulation, overlay) stays in Part 16. |
+| A10 | `applications/text-retrieval` | Inverted index with Elias-Fano posting lists (Part 26), positional phrase queries, BM25 scoring with top-k heaps (Part 6), autocomplete over tries (Part 22), spelling correction with a BK-tree (Part 15), near-duplicate detection with shingling and minhash (Part 8). |
+| A11 | `applications/image` | Region-quadtree images (Part 18), run-length encoding, connected-component labeling with union-find (Part 24), distance transforms, flood fill, Morton-order tiling, bitset morphology. |
+| A12 | `applications/data-mining` | FP-growth over an FP-tree, Apriori with a hash tree, k-means and DBSCAN accelerated by Parts 15 and 20, hierarchical clustering with a priority queue, locality-sensitive hashing. |
+| A13 | `applications/compression` | Burrows-Wheeler (Part 23), move-to-front (Part 1), run-length, Huffman and adaptive Huffman (Part 13) as a bzip2-style pipeline; LZ77 over a suffix structure, LZ78/LZW over a trie (Part 22). |
+| A14 | `applications/route-planning` | A* and bidirectional Dijkstra over an indexed heap (Part 6), ALT with Part 36 landmarks, contraction hierarchies, turn restrictions, on an OpenStreetMap extract. |
+| A15 | `applications/caching-simulation` | LRU, LFU, ARC, and CLOCK caches from a hash map and linked list (Parts 8 and 1); discrete-event simulation over Part 6 calendar queues and timing wheels. |
 
 **Exit criteria:** each application ships a runnable example and a benchmark
-using realistic data (routing tables, packet traces, map extracts, meshes); the
-module composes only public APIs from earlier parts.
+using realistic data (routing tables, packet traces, map extracts, meshes, text
+corpora); the module builds on the public APIs of earlier parts and may define
+domain-specific structures, which must implement the common contract
+(`Container` where applicable, `validate()`, and the shared error types).
 
 ---
 
@@ -355,7 +368,7 @@ module composes only public APIs from earlier parts.
 | v0.5 | Tries, Suffix structures | String conformance and memory gates pass |
 | v0.6 | Parts 15-21 | Spatial conformance and epsilon checks pass |
 | v0.7 | Parts 25-38 | Dynamic, succinct, I/O-model, and kinetic gates pass |
-| v1.0 | A1-A9, docs, benchmarks, API freeze | Full suite, docs, and examples complete |
+| v1.0 | A1-A15, docs, benchmarks, API freeze | Full suite, docs, and examples complete |
 
 No version ships with a structure marked `done` unless it has: implementation,
 type declarations, unit + property tests, invariant checks, complexity docs,

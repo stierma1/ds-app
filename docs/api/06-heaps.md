@@ -41,6 +41,14 @@ export interface MonotonePriorityQueue<T> extends PriorityQueue<T> {
   readonly maxKey: number;
   decreaseKey(value: T, newKey: number): boolean;
 }
+
+export interface TimerQueue<T> extends Container<T> {
+  readonly now: number;
+  schedule(time: number, value: T): number;
+  cancel(id: number): boolean;
+  advance(time: number): T[];
+  peekTime(): number | undefined;
+}
 ```
 
 `Heap` extends the shared
@@ -66,6 +74,10 @@ key would violate the requested direction.
 - `MonotonePriorityQueue` holds integer keys in `[0, maxKey]` and requires
   keys to be popped in non-decreasing order: a `push` with a key smaller than
   the last popped key throws `RangeError`. It serves Dijkstra-style workloads.
+- `TimerQueue` holds events keyed by time for discrete-event simulation and
+  timeouts. `schedule` returns a cancellation id; scheduling before `now`
+  throws `RangeError`. `advance(t)` sets `now = t` and returns every event
+  with time `<= t` in non-decreasing time order, ties by scheduling order.
 - `validate()` checks heap order, index consistency, and size.
 
 ## Implementations and complexity
@@ -81,6 +93,8 @@ key would violate the requested direction.
 | `SortedArrayHeap` | O(n) | O(1) with a head index | O(1) | O(n) | O(n) | O(n log n) | O(n) |
 | `BucketQueue` (Dial, monotone) | O(1) | O(1) amortized over a monotone sequence, O(C) worst | O(1) amortized | O(1) | — | O(n + C) | O(n + C) |
 | `RadixHeap` (monotone) | O(1) | O(log C) amortized | O(1) | O(1) amortized | — | O(n) | O(n + log C) |
+| `CalendarQueue` (timer) | O(1) amortized | O(1) amortized under a stable event-time distribution, O(n) worst | O(1) | — | — | O(n) | O(n + buckets) |
+| `TimingWheel` (hierarchical timer) | O(1) | O(1) amortized per tick, O(levels) per cascade | O(1) | — | — | O(n) | O(n + slots) |
 
 Definitions: `n` = number of elements, `d` = arity, `C` = maximum integer key
 of a monotone queue. `merge` is the cost of
@@ -120,6 +134,14 @@ is destructive.
 - `RadixHeap` keeps `O(log C)` buckets whose ranges double; an element is
   redistributed at most `O(log C)` times over its life, which gives the
   amortized `pop` bound and `O(E + V log C)` for Dijkstra.
+- `CalendarQueue` (Brown) buckets events by time modulo a "year"; bucket width
+  and count are resized from the observed event density, which gives O(1)
+  amortized operations when event times are spread evenly, as in most
+  discrete-event simulations.
+- `TimingWheel` (Varghese and Lauck) quantizes time into ticks and keeps a
+  hierarchy of wheels; an event cascades down one level each time a coarser
+  wheel turns over. It is the standard structure for network and runtime
+  timers where most events are cancelled before they fire.
 
 ## Example
 
@@ -155,3 +177,6 @@ index.peek(); // [1, 'ten']
 - Randomized operation logs are differential-tested against a sorted array.
 - Monotone queues reject a key below the last popped key and match a binary
   heap on recorded Dijkstra traces.
+- Timer queues deliver events in non-decreasing time and match a binary heap
+  on recorded simulation traces, across bucket resizes, wheel cascades, and
+  cancellations.

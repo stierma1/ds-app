@@ -53,8 +53,10 @@ the book but that the library needs (deques, monotone priority queues, cover
 trees, the trapezoidal map, Fenwick trees and RMQ, Bloom-filter variants) are
 folded into the part they extend rather than given parts of their own.
 
-Application contracts for A1-A9 are added when Phase 8 begins; they compose the
-part contracts above rather than introducing new container semantics.
+Application contracts for A1-A15 are added when Phase 8 begins; they compose the
+part contracts above rather than introducing new container semantics. The
+application write-ups (use case, approach, composed parts) live in
+[`docs/applications/`](../applications/README.md).
 
 ## Conventions used in complexity tables
 

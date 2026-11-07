@@ -53,6 +53,20 @@ export interface ThreadedBinaryTree<K, V = K> extends BinarySearchTree<K, V> {
   successorNode(node: TreeNode<[K, V]>): TreeNode<[K, V]> | null;
   predecessorNode(node: TreeNode<[K, V]>): TreeNode<[K, V]> | null;
 }
+
+export interface LowestCommonAncestor<T> {
+  readonly size: number;
+  lca(a: TreeNode<T>, b: TreeNode<T>): TreeNode<T>;
+  depth(node: TreeNode<T>): number;
+  distance(a: TreeNode<T>, b: TreeNode<T>): number;
+  isAncestor(ancestor: TreeNode<T>, node: TreeNode<T>): boolean;
+  validate(): true | string;
+}
+
+export function buildLca<T>(
+  tree: TreeLike<T> | GeneralTree<T>,
+  method?: 'euler-rmq' | 'binary-lifting',
+): LowestCommonAncestor<T>;
 ```
 
 Shared members come from [`Container`](./00-common-contract.md#container).
@@ -72,6 +86,9 @@ contract for `set/get/has/delete/min/max/range`.
   node with a real child descends to the extreme of that subtree in O(h). A
   full inorder walk is O(n) and needs no stack, so each step is O(1)
   amortized.
+- `buildLca` snapshots the tree. Mutating the tree afterwards invalidates the
+  structure and `lca` then throws `ConcurrentModificationError`; a node from
+  another tree throws `TypeError`. Part 25 covers the dynamic case.
 - `validate()` checks parent/child consistency, BST ordering, thread targets,
   subtree sizes, and height.
 
@@ -105,6 +122,8 @@ guarantee `h = O(log n)`.
 | Split by key | O(h) | Returns the lower and upper trees. |
 | Subtree size | O(1) | Maintained at each node. |
 | Recompute height | O(n) | Or O(1) with maintained heights. |
+| LCA, Euler tour + RMQ (Part 17) | O(n) build, O(1) query, O(n) space | Default. `distance` is `depth(a) + depth(b) − 2·depth(lca)`. |
+| LCA, binary lifting | O(n log n) build, O(log n) query, O(n log n) space | Simpler; also answers level-ancestor queries. |
 
 ## Example
 
@@ -126,6 +145,9 @@ bst.validate();             // true
 - Traversals are differential-tested against a recursive reference on random
   tree shapes, including empty and single-node trees.
 - Deep degenerate trees (10^5 nodes) traverse without stack overflow.
+- `lca`, `depth`, `distance`, and `isAncestor` match a naive parent-walk
+  reference on random trees, including the root, identical nodes, and
+  ancestor/descendant pairs, for both methods.
 - `successor`/`predecessor` and `successorNode`/`predecessorNode` cover first,
   last, missing key, and every node.
 - Threaded and unthreaded trees agree on inorder sequences after randomized

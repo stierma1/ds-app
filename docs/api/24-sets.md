@@ -12,7 +12,7 @@ filters). All set-algebra operations are non-mutating and return a new set.
 ## Common API
 
 ```ts
-import type { Container, SetLike } from 'ds-app/core';
+import type { Comparator, Container, SetLike } from 'ds-app/core';
 
 export interface DisjointSet<E> {
   readonly setCount: number;
@@ -61,6 +61,12 @@ export interface CuckooFilter {
   clear(): void;
   validate(): true | string;
 }
+
+export function mergeSortedRuns<E>(
+  runs: Iterable<Iterable<E>>,
+  compare: Comparator<E>,
+  options?: { unique?: boolean },
+): IterableIterator<E>;
 ```
 
 Shared set members (`add/delete/has/union/intersection/difference/...`) come
@@ -91,6 +97,10 @@ and `validate()` directly instead of implementing `Container`.
 - `CuckooFilter.add` returns `false` when the eviction limit is reached (the
   filter is full); `delete` must be called only for values that were added,
   as with the counting filter.
+- `mergeSortedRuns` is a lazy k-way merge over `k` sorted iterables using a
+  Part 6 heap; `unique: true` drops elements that compare equal across runs.
+  An unsorted run is detected during the merge and throws `RangeError`. It is
+  the primitive behind `SortedArraySet` algebra and Part 34 external sort.
 - `validate()` checks bucket/bit/interval/forest invariants.
 
 ## Implementations and complexity
@@ -141,6 +151,9 @@ operations are amortized with union by rank and path compression.
 - **Cuckoo filter:** stores short fingerprints in a two-choice cuckoo table
   (Fan et al.); supports deletion, beats Bloom filters in space below about a
   3% target rate, and fills to a load factor near 95% with buckets of four.
+- **k-way merge:** `mergeSortedRuns` costs O(N log k) for `N` total elements
+  over `k` runs and O(k) extra space; with `k = 2` it degenerates to the
+  linear merge used by `SortedArraySet`.
 
 ## Example
 
@@ -167,6 +180,8 @@ uf.sizeOf('b');            // 2
 - Set-algebra results are compared with a brute-force implementation.
 - `BitSet` boundary values `0` and `U - 1` are tested; `U` and `-1` throw.
 - `IntervalSet` merges and splits correctly, including touching endpoints.
+- `mergeSortedRuns` matches a concatenate-sort-dedupe reference for random run
+  counts, empty runs, and duplicates within and across runs.
 - Union-find matches a naive connected-component model; path compression and
   union by rank are verified structurally.
 - Bloom filters never produce false negatives for values that were inserted.
