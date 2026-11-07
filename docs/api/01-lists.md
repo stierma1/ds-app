@@ -79,8 +79,9 @@ export interface OrderMaintenanceList<T> extends Container<T> {
 }
 ```
 
-Shared members (`size`, `isEmpty`, `clear`, `toArray`, iteration, `validate`)
-come from [`Container`](./00-common-contract.md#container).
+Shared members (`size`, `isEmpty`, `clear`, `toArray`, iteration, `validate`,
+`serialize`) come from [`Container`](./00-common-contract.md#container).
+`deserialize` is a static factory on each concrete class.
 
 ### Semantics
 
@@ -104,6 +105,40 @@ come from [`Container`](./00-common-contract.md#container).
   throws `ConsumedError`.
 - `validate()` checks size, index bounds, node link consistency (linked
   variants), and cursor free-list integrity (cursor lists).
+
+### Serialization
+
+Every `ListLike`, `SortedListLike`, `Deque`, `Stack`, and `Queue`
+implementation extends [`Serializable`](./00-common-contract.md#serialization).
+`serialize()` emits `{ type, version, values }`, where `values` is the
+container's iteration order. Deserialization rebuilds that order:
+
+```ts
+ArrayList.deserialize<number>(json);
+SinglyLinkedList.deserialize<number>(json);
+DoublyLinkedList.deserialize<number>(json);
+CircularList.deserialize<number>(json);
+CursorList.deserialize<number>(json);
+XorLinkedList.deserialize<number>(json);
+ArrayDeque.deserialize<number>(json);
+ArrayStack.deserialize<number>(json);
+ArrayQueue.deserialize<number>(json);
+LinkedQueue.deserialize<number>(json);
+SortedList.deserialize<number>(json, compare?);
+SortedLinkedList.deserialize<number>(json, compare?);
+OrderMaintenanceList.deserialize<number>(json);
+```
+
+- `SortedList` and `SortedLinkedList` accept the optional comparator used by the
+  original instance; the default comparator is used when omitted.
+- `OrderMaintenanceList` serializes values in positional order. Labels and their
+  internal ordering metadata are not serialized; deserialization creates fresh
+  labels.
+- `CursorList` cursors and `XorLinkedList` arena indices are not serialized.
+- `GeneralizedList` and `OrthogonalList` implement `Serializable` directly. They
+  serialize `{ type, version, rows, cols, entries }`, where each entry is a
+  `[row, column, value]` triple, and expose the static `deserialize(json)`
+  factory inherited from `SparseMatrix`.
 
 ## Implementations and complexity
 

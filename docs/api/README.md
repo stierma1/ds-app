@@ -4,7 +4,10 @@ One document per roadmap part. Each defines the generic interface for that part
 and the time complexity of every implementation in it.
 
 Shared rules — comparators, empty results, iteration, ownership, errors,
-validation — are defined in [Common API Contract](./00-common-contract.md).
+validation, and serialization — are defined in
+[Common API Contract](./00-common-contract.md). Every container extends
+`Serializable`, so every API below also exposes `serialize(): string` and a
+static `deserialize(json): T`.
 
 | Part | Document | Primary contract | Module |
 |------|----------|------------------|--------|

@@ -147,9 +147,9 @@ idx.validate();   // true
 
 The generic interfaces for all 38 parts, with per-implementation complexity
 tables, live in [`docs/api/`](./docs/api/README.md). The shared container,
-ordering, error, ownership, and iteration rules are defined once in the
-[Common API Contract](./docs/api/00-common-contract.md) and referenced by every
-part document. Each application in Phase 8 has a write-up in
+ordering, error, ownership, iteration, and serialization rules are defined once
+in the [Common API Contract](./docs/api/00-common-contract.md) and referenced by
+every part document. Each application in Phase 8 has a write-up in
 [`docs/applications/`](./docs/applications/README.md) covering its use case,
 the approach, and the parts it composes.
 

@@ -26,10 +26,44 @@ throws `TypeError`.
 Ordered structures treat comparator equality as key identity. Two keys that
 compare equal are the same key.
 
+## Serialization
+
+Every container implements `Serializable`. Deserialization is a static factory,
+described by `SerializableConstructor`.
+
+```ts
+export interface Serializable {
+  serialize(): string;
+}
+
+export interface SerializableConstructor<T> {
+  deserialize(json: unknown): T;
+}
+```
+
+- `serialize()` returns a JSON string with a stable object shape. The object
+  always includes `type` (the concrete structure name) and `version` (currently
+  `1`), plus the structure's payload.
+- `Deserialize(json)` accepts either the parsed JSON object or its JSON string.
+  It validates the type, version, and every payload field. Malformed input
+  throws `TypeError`; it never produces a partially populated structure.
+- The round trip preserves `size`, iteration order, and all elements or entries.
+  It does not promise to preserve internal layout unless a part document says
+  so (binary tree shape is preserved; search trees are rebuilt balanced).
+- Comparators are functions and are not serialized. Ordered structures accept
+  an optional comparator on `deserialize`; callers must supply the same ordering
+  when the default comparator does not apply.
+- Handles, cursors, and labels are not serialized. `OrderMaintenanceList`
+  serializes its values in list order and returns fresh labels on deserialize.
+- Values must be JSON-compatible and must not be `undefined`. `Date` values
+  become strings after a JSON round trip. Serializing an undefined key, value,
+  or element throws `TypeError`.
+- Decimal and binary payload details are documented per part.
+
 ## Container
 
 ```ts
-export interface Container<T> {
+export interface Container<T> extends Serializable {
   readonly size: number;
   isEmpty(): boolean;
   clear(): void;
@@ -47,6 +81,7 @@ export interface Container<T> {
 | `toArray()` | Snapshot in iteration order; does not consume the container. |
 | `[Symbol.iterator]()` | Iterates without consuming; may be invalidated by mutation. |
 | `validate()` | Returns `true` or a string describing the first invariant violation. O(n) unless documented otherwise. |
+| `serialize()` | Returns the stable JSON representation described under [Serialization](#serialization). O(n). |
 
 `undefined` is not a valid stored element, key, or map value. Operations that
 return a single element return `undefined` when there is no such element, which
@@ -222,8 +257,10 @@ export interface StringIndex extends Container<number> {
    size.
 9. **Amortized and expected bounds.** These are labeled explicitly; a bare
    `O(...)` in a table is a worst-case bound.
-10. **Serialization.** Where offered, `toJSON()` emits a stable shape and
-    `fromJSON()` validates it. Serialization is not part of the core contract.
+10. **Serialization.** Every container is `Serializable`: `serialize()` returns
+    a stable JSON string and the concrete class exposes a static
+    `deserialize(json)` factory. Both follow the rules in
+    [Serialization](#serialization).
 
 ## Errors
 
@@ -241,5 +278,6 @@ container. Internal invariant failures throw `Error`.
 ## Versioning
 
 Adding an optional operation is a minor release. Changing a return type,
-iteration order, ownership rule, or documented complexity bound is a major
-release.
+iteration order, ownership rule, documented complexity bound, serialized shape,
+or serialized `type` name is a major release. Incompatible payload changes bump
+the `version` field.

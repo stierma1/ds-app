@@ -1,0 +1,28 @@
+{
+  "name": "ds-app",
+  "version": "0.1.0",
+  "description": "A dependency-free JavaScript library of data structures and applications.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts",
+    "./core": "./src/core/index.ts",
+    "./lists": "./src/lists/index.ts",
+    "./trees": "./src/trees/index.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "test": "node --test tests/unit/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  }
+}

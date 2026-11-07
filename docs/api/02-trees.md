@@ -11,7 +11,7 @@ search tree. Balanced and self-adjusting search trees are specified in Parts 9,
 ## Common API
 
 ```ts
-import type { Container, Comparator, OrderedMap } from 'ds-app/core';
+import type { Container, Comparator, OrderedMap, Serializable } from 'ds-app/core';
 
 export interface TreeNode<T> {
   value: T;
@@ -54,8 +54,9 @@ export interface ThreadedBinaryTree<K, V = K> extends BinarySearchTree<K, V> {
   predecessorNode(node: TreeNode<[K, V]>): TreeNode<[K, V]> | null;
 }
 
-export interface LowestCommonAncestor<T> {
+export interface LowestCommonAncestor<T> extends Serializable {
   readonly size: number;
+  readonly nodes: readonly TreeNode<T>[];
   lca(a: TreeNode<T>, b: TreeNode<T>): TreeNode<T>;
   depth(node: TreeNode<T>): number;
   distance(a: TreeNode<T>, b: TreeNode<T>): number;
@@ -67,11 +68,15 @@ export function buildLca<T>(
   tree: TreeLike<T> | GeneralTree<T>,
   method?: 'euler-rmq' | 'binary-lifting',
 ): LowestCommonAncestor<T>;
+
+export function deserializeLca<T>(json: unknown): LowestCommonAncestor<T>;
 ```
 
-Shared members come from [`Container`](./00-common-contract.md#container).
+Shared members (`size`, `isEmpty`, `clear`, `toArray`, iteration, `validate`,
+`serialize`) come from [`Container`](./00-common-contract.md#container).
 `BinarySearchTree` uses the [`OrderedMap`](./00-common-contract.md#ordered-map--ordered-set)
-contract for `set/get/has/delete/min/max/range`.
+contract for `set/get/has/delete/min/max/range`. `deserialize` is a static
+factory on each concrete class.
 
 ### Semantics
 
@@ -89,8 +94,38 @@ contract for `set/get/has/delete/min/max/range`.
 - `buildLca` snapshots the tree. Mutating the tree afterwards invalidates the
   structure and `lca` then throws `ConcurrentModificationError`; a node from
   another tree throws `TypeError`. Part 25 covers the dynamic case.
+- `nodes` exposes the snapshot's nodes. For a deserialized LCA they are
+  reconstructed nodes owned by the snapshot.
 - `validate()` checks parent/child consistency, BST ordering, thread targets,
   subtree sizes, and height.
+
+### Serialization
+
+Every tree container extends [`Serializable`](./00-common-contract.md#serialization),
+and `LowestCommonAncestor` is serializable as well.
+
+```ts
+BinaryTree.deserialize<T>(json);
+BinarySearchTree.deserialize<K, V>(json, compare?);
+ThreadedBinaryTree.deserialize<K, V>(json, compare?);
+GeneralTree.deserialize<T>(json);
+deserializeLca<T>(json);
+```
+
+- `BinaryTree` serializes a flat preorder node table with each node's parent
+  index and `left`/`right` side, preserving the exact shape. `deserialize`
+  validates the table and rebuilds parent links.
+- `BinarySearchTree` and `ThreadedBinaryTree` serialize their entries in
+  ascending key order and rebuild a balanced tree on deserialization. Threads
+  are re-established by insertion. Supply the original comparator when the
+  default comparator does not apply.
+- `GeneralTree` serializes a flat preorder table with parent indices; sibling
+  order is preserved by the table order.
+- `LowestCommonAncestor` serializes its method, node values, parent indices, and
+  child lists. `deserializeLca` rebuilds the snapshot and exposes the
+  reconstructed nodes through `nodes`.
+- Tree values, keys, and map values must be JSON-compatible and must not be
+  `undefined`.
 
 ## Implementations and complexity
 
