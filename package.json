@@ -14,6 +14,7 @@
     "./heaps": "./src/heaps/index.ts",
     "./leftist-trees": "./src/leftist-trees/index.ts",
     "./lists": "./src/lists/index.ts",
+    "./mwpl-trees": "./src/mwpl-trees/index.ts",
     "./sets": "./src/sets/index.ts",
     "./skew-heaps": "./src/skew-heaps/index.ts",
     "./trees": "./src/trees/index.ts"
@@ -28,6 +29,7 @@
     "benchmark:phase3-depq": "node benchmarks/phase3-depq.ts",
     "benchmark:phase3-heaps": "node benchmarks/phase3-heaps.ts",
     "benchmark:phase3-leftist": "node benchmarks/phase3-leftist.ts",
+    "benchmark:phase3-mwpl": "node benchmarks/phase3-mwpl.ts",
     "benchmark:phase3-skew": "node benchmarks/phase3-skew.ts"
   },
   "engines": {

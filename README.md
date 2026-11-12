@@ -180,8 +180,8 @@ counted through the comparator):
 | 8 | Applications | A1-A15 | v1.0 |
 
 Status legend: `planned` · `in progress` · `done`. Current status: **Phase 3,
-in progress**; `heaps`, `leftist-trees`, `skew-heaps`, and `depq` are done, with
-`mwpl-trees` remaining.
+done**; `heaps`, `leftist-trees`, `skew-heaps`, `depq`, and `mwpl-trees` are
+done.
 
 Dependencies flow left to right and top to bottom: trees before search trees,
 heaps before priority-queue variants, spatial indexes before GIS and collision
@@ -251,13 +251,14 @@ adversarial constant-hash and union-find depth checks live in
 mixed workloads; decrease-key is tested for indexed variants; Huffman output is
 verified by code-length optimality and decode round-trips.
 
-**Status:** `heaps`, `leftist-trees`, `skew-heaps`, and `depq` done. Run
-`npm run benchmark:phase3-heaps`, `npm run benchmark:phase3-leftist`,
-`npm run benchmark:phase3-skew`, and `npm run benchmark:phase3-depq` for the
-mixed workload comparisons; `tests/unit/heaps-*.test.ts`,
-`tests/unit/leftist-trees.test.ts`, `tests/unit/skew-heaps.test.ts`, and
-`tests/unit/depq.test.ts` cover the heap, indexed, monotone, timer, leftist,
-skew-heap, and double-ended priority-queue contracts.
+**Status:** done. Run `npm run benchmark:phase3-heaps`,
+`npm run benchmark:phase3-leftist`, `npm run benchmark:phase3-skew`,
+`npm run benchmark:phase3-depq`, and `npm run benchmark:phase3-mwpl` for the
+mixed workload and prefix-code comparisons; `tests/unit/heaps-*.test.ts`,
+`tests/unit/leftist-trees.test.ts`, `tests/unit/skew-heaps.test.ts`,
+`tests/unit/depq.test.ts`, and `tests/unit/mwpl-trees.test.ts` cover the heap,
+indexed, monotone, timer, leftist, skew-heap, double-ended priority-queue, and
+prefix-code contracts.
 
 ---
 

@@ -1,6 +1,6 @@
 # Part 13 — Trees with Minimum Weighted Path Length
 
-**Module:** `ds-app/mwpl-trees` · **Source:** `src/mwpl-trees/` · **Status:** planned
+**Module:** `ds-app/mwpl-trees` · **Source:** `src/mwpl-trees/` · **Status:** done
 
 ## Scope
 
@@ -58,8 +58,8 @@ export interface AdaptivePrefixCode<S extends SymbolKey = string>
 |----------------|-------|--------|--------|--------|-------|
 | `HuffmanCode` | O(n log n), O(n) if frequencies are presorted | O(ℓ) per symbol | O(1) per bit | — | O(n) |
 | `LengthLimitedHuffman` | O(n·L) package-merge | O(ℓ) per symbol | O(1) per bit | — | O(n·L), O(n) with the space-reduced variant |
-| `AdaptiveHuffmanCode` (FGK) | O(σ) initialization | O(ℓ) per symbol plus update | O(1) per bit plus update | O(ℓ), at most O(σ) | O(σ) |
-| `HuTuckerCode` | O(n log n) | O(ℓ) per symbol | O(1) per bit | — | O(n) |
+| `AdaptiveHuffmanCode` | O(σ) initialization | O(ℓ) per symbol | O(1) per bit | O(σ log σ) rebuild | O(σ) |
+| `HuTuckerCode` | O(n²) worst; O(n log n) with a balanced sequence | O(ℓ) per symbol | O(1) per bit | — | O(n) |
 
 Definitions: `n` distinct symbols with positive frequencies, `L` maximum code
 length, `σ` alphabet size, `ℓ` the code length of the symbol being encoded,
@@ -75,12 +75,17 @@ output is still `ℓ` bits.
 - **Length-limited Huffman:** package-merge enforces `ℓ(s) ≤ maxLength` while
   minimizing weighted path length subject to that constraint. If the constraint
   is infeasible, the constructor throws `RangeError`.
-- **Adaptive Huffman (FGK):** maintains a dynamic tree and updates it after each
-  symbol; it needs no frequency table in advance and is suitable for streaming.
-  The sibling-property invariant is validated after every update.
+- **Adaptive Huffman:** maintains a dynamic tree and rebuilds it after each
+  `update(symbol)` over the observed symbol weights plus a zero-weight
+  not-yet-transmitted (NYT) leaf. It needs no frequency table in advance and is
+  suitable for streaming. Unseen symbols are transmitted as the NYT path
+  followed by a fixed-width alphabet index, so encoding and decoding remain
+  self-contained. Because the tree is rebuilt as a Huffman tree, the
+  sibling-property invariant holds after every update.
 - **Hu-Tucker:** computes an optimal *alphabetic* code, where the left-to-right
   order of symbols must match the input order. It is not a general Huffman
-  replacement when order is irrelevant.
+  replacement when order is irrelevant. The implementation uses the equivalent
+  Garsia–Wachs construction and converts its leaf depths to ordered code words.
 - Static codes are immutable after construction; adaptive codes are stateful.
 
 ## Example
