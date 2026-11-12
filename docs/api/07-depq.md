@@ -1,6 +1,6 @@
 # Part 7 — Double-Ended Priority Queues
 
-**Module:** `ds-app/depq` · **Source:** `src/depq/` · **Status:** planned
+**Module:** `ds-app/depq` · **Source:** `src/depq/` · **Status:** done
 
 ## Scope
 
@@ -17,6 +17,8 @@ export interface Depq<T> extends DoubleEndedPriorityQueue<T> {
   readonly compare: Comparator<T>;
   readonly height: number;
   build(values: Iterable<T>): void;
+  getMin(): T | undefined;
+  getMax(): T | undefined;
 }
 ```
 
@@ -27,7 +29,8 @@ double-ended operations come from
 
 ### Semantics
 
-- `peekMin()`/`peekMax()` return `undefined` only when the queue is empty.
+- `peekMin()`/`peekMax()` return `undefined` only when the queue is empty;
+  `getMin()`/`getMax()` are aliases.
 - When exactly one element remains, both `popMin()` and `popMax()` remove it.
 - Ties are broken arbitrarily.
 - `build(values)` replaces the contents where supported.
@@ -40,15 +43,19 @@ double-ended operations come from
 | Implementation | `push` | `popMin` | `popMax` | `peekMin` | `peekMax` | `build` | Space |
 |----------------|--------|----------|----------|-----------|-----------|---------|-------|
 | `MinMaxHeap` | O(log n) | O(log n) | O(log n) | O(1) | O(1) | O(n) | O(n) |
-| `Deap` | O(log n) | O(log n) | O(log n) | O(1) | O(1) | O(n) | O(n) |
-| `IntervalHeap` | O(log n) | O(log n) | O(log n) | O(1) | O(1) | O(n) | O(n) |
-| `TwoHeapDepq` (lazy) | O(log n) | O(log n) amortized | O(log n) amortized | O(1) | O(1) | O(n) | O(n) |
+| `Deap` | O(log n) | O(log n) | O(log n) | O(1) | O(1) | O(n log n)* | O(n) |
+| `IntervalHeap` | O(log n) | O(log n) | O(log n) | O(1) | O(1) | O(n log n)* | O(n) |
+| `TwoHeapDepq` (lazy) | O(log n) | O(log n) amortized | O(log n) amortized | O(1) amortized | O(1) amortized | O(n) | O(n) |
 | `SortedArrayDepq` | O(n) | O(1) | O(1) | O(1) | O(1) | O(n log n) | O(n) |
 | `BalancedTreeDepq` | O(log n) | O(log n) | O(log n) | O(log n) | O(log n) | O(n log n) | O(n) |
 
-Definitions: `n` = number of elements. `TwoHeapDepq` keeps a min-heap and a
+Definitions: `n` = number of elements. `MinMaxHeap` and `TwoHeapDepq` support
+O(n) construction. `Deap` and `IntervalHeap` rebuild by repeated insertion in
+this implementation, which is O(n log n); the published structures also admit
+O(n) bottom-up construction. `TwoHeapDepq` keeps a min-heap and a
 max-heap with lazy invalidation; each element can be stale in one heap, so
-`pop` may discard stale roots before returning. `SortedArrayDepq` pops from
+`peek`/`pop` may discard stale roots before returning, so those bounds are
+amortized. `SortedArrayDepq` pops from
 either end of a sorted array.
 
 ### Notes

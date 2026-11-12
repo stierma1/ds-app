@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./core": "./src/core/index.ts",
+    "./depq": "./src/depq/index.ts",
     "./graphs": "./src/graphs/index.ts",
     "./hash-tables": "./src/hash-tables/index.ts",
     "./heaps": "./src/heaps/index.ts",
@@ -24,6 +25,7 @@
     "test": "node --test tests/unit/*.test.ts",
     "typecheck": "tsc --noEmit",
     "benchmark:phase2": "node benchmarks/phase2-load-factor.ts",
+    "benchmark:phase3-depq": "node benchmarks/phase3-depq.ts",
     "benchmark:phase3-heaps": "node benchmarks/phase3-heaps.ts",
     "benchmark:phase3-leftist": "node benchmarks/phase3-leftist.ts",
     "benchmark:phase3-skew": "node benchmarks/phase3-skew.ts"
