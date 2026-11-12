@@ -1,6 +1,6 @@
 # Part 6 — Heaps
 
-**Module:** `ds-app/heaps` · **Source:** `src/heaps/` · **Status:** planned
+**Module:** `ds-app/heaps` · **Source:** `src/heaps/` · **Status:** done
 
 ## Scope
 
@@ -49,6 +49,23 @@ export interface TimerQueue<T> extends Container<T> {
   advance(time: number): T[];
   peekTime(): number | undefined;
 }
+
+export interface DaryHeapOptions {
+  arity?: number;
+}
+
+export interface CalendarQueueOptions {
+  bucketCount?: number;
+  bucketWidth?: number;
+  now?: number;
+}
+
+export interface TimingWheelOptions {
+  tickSize?: number;
+  slots?: number;
+  levels?: number;
+  now?: number;
+}
 ```
 
 `Heap` extends the shared
@@ -79,6 +96,9 @@ key would violate the requested direction.
   throws `RangeError`. `advance(t)` sets `now = t` and returns every event
   with time `<= t` in non-decreasing time order, ties by scheduling order.
 - `validate()` checks heap order, index consistency, and size.
+- `PairingHeap` and `FibonacciHeap` expose `decreaseKey(value, newValue)` for values unique by identity; it targets the most recently pushed node holding that value. `BucketQueue` and `RadixHeap` expose the monotone `decreaseKey(value, newKey)` with the same identity rule, cancelling the old entry and inserting the replacement.
+- `DaryHeap` defaults to arity 4. `CalendarQueue` defaults to 32 buckets of width 1, and `TimingWheel` defaults to tick size 1, 64 slots, and 4 levels; both grow their geometry as events arrive.
+- With `tickSize > 1`, the timing wheel quantizes event times to tick boundaries at or after the requested time, so an event is delivered when `now` reaches its tick boundary.
 
 ## Implementations and complexity
 

@@ -7,7 +7,12 @@ export {
   assertInteger,
   ContainerBase,
 } from "./container.ts";
-export type { Container } from "./container.ts";
+export type {
+  Container,
+  DoubleEndedPriorityQueue,
+  MeldablePriorityQueue,
+  PriorityQueue,
+} from "./container.ts";
 export {
   ConcurrentModificationError,
   ConsumedError,

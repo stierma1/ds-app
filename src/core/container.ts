@@ -18,6 +18,37 @@ export interface Container<T> extends Iterable<T>, Serializable {
   validate(): true | string;
 }
 
+/**
+ * Single-ended priority queue. `peek`/`pop` return `undefined` only when the queue is empty;
+ * iteration order is implementation-defined unless a part document promises otherwise.
+ */
+export interface PriorityQueue<T> extends Container<T> {
+  push(value: T): void;
+  pop(): T | undefined;
+  peek(): T | undefined;
+}
+
+/**
+ * Priority queue with a destructive meld. `merge` consumes `other`: it transfers ownership of the
+ * elements to the returned queue, and later operations on `other` throw ConsumedError.
+ * Implementations that cannot meld in their documented bound throw UnsupportedError.
+ */
+export interface MeldablePriorityQueue<T> extends PriorityQueue<T> {
+  merge(other: MeldablePriorityQueue<T>): MeldablePriorityQueue<T>;
+}
+
+/**
+ * Priority queue with O(1) access to both extremes. `popMin` and `popMax` both remove the last
+ * element when only one remains.
+ */
+export interface DoubleEndedPriorityQueue<T> extends Container<T> {
+  push(value: T): void;
+  popMin(): T | undefined;
+  popMax(): T | undefined;
+  peekMin(): T | undefined;
+  peekMax(): T | undefined;
+}
+
 /** O(1) argument guard; throws TypeError for non-integers. */
 export function assertInteger(value: number, name = "index"): void {
   if (typeof value !== "number" || !Number.isInteger(value)) {
