@@ -4,6 +4,7 @@ import {
   IntervalHeap,
   MinMaxHeap,
   SortedArrayDepq,
+  SymmetricMinMaxHeap,
   TwoHeapDepq,
 } from "../src/index.ts";
 
@@ -25,6 +26,7 @@ const factories: Factory[] = [
   { name: "MinMaxHeap", create: () => new MinMaxHeap<number>() },
   { name: "Deap", create: () => new Deap<number>() },
   { name: "IntervalHeap", create: () => new IntervalHeap<number>() },
+  { name: "SymmetricMinMaxHeap", create: () => new SymmetricMinMaxHeap<number>() },
   { name: "TwoHeapDepq", create: () => new TwoHeapDepq<number>() },
   { name: "SortedArrayDepq", create: () => new SortedArrayDepq<number>() },
   { name: "BalancedTreeDepq", create: () => new BalancedTreeDepq<number>() },

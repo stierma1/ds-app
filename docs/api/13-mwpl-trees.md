@@ -77,10 +77,14 @@ output is still `ℓ` bits.
   is infeasible, the constructor throws `RangeError`.
 - **Adaptive Huffman:** maintains a dynamic tree and rebuilds it after each
   `update(symbol)` over the observed symbol weights plus a zero-weight
-  not-yet-transmitted (NYT) leaf. It needs no frequency table in advance and is
-  suitable for streaming. Unseen symbols are transmitted as the NYT path
-  followed by a fixed-width alphabet index, so encoding and decoding remain
-  self-contained. Because the tree is rebuilt as a Huffman tree, the
+  not-yet-transmitted (NYT) leaf while any alphabet symbol is still unseen. It
+  needs no frequency table in advance and is suitable for streaming. Unseen
+  symbols are transmitted as the NYT path followed by a fixed-width alphabet
+  index, so encoding and decoding remain self-contained. Once every alphabet
+  symbol has been seen, the NYT leaf is dropped and the tree is a Huffman tree
+  over the observed weights alone (a one-symbol alphabet then has the code
+  `0`); `decode` rejects escapes from then on, and `reset()` restores the NYT
+  leaf. Because the tree is rebuilt as a Huffman tree, the
   sibling-property invariant holds after every update.
 - **Hu-Tucker:** computes an optimal *alphabetic* code, where the left-to-right
   order of symbols must match the input order. It is not a general Huffman

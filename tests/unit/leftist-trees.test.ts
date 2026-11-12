@@ -6,9 +6,16 @@ import {
   DoubleEndedLeftistTree,
   HeightBiasedLeftistHeap,
   LeftistHeap,
+  PairingHeap,
+  SkewHeap,
+  takeForMerge,
+  UnsupportedError,
   WeightBiasedLeftistHeap,
 } from "../../src/index.ts";
 import type { LeftistHeap as LeftistHeapContract } from "../../src/leftist-trees/types.ts";
+
+/** One shared comparator: merge requires both heaps to use the same comparator function. */
+const asc = (a: number, b: number): number => a - b;
 
 function seeded(seed: number): () => number {
   let state = seed >>> 0;
@@ -36,14 +43,14 @@ interface Factory {
 const factories: Factory[] = [
   {
     name: "LeftistHeap",
-    create: () => new LeftistHeap<number>((a, b) => a - b),
-    deserialize: (json) => LeftistHeap.deserialize<number>(json, (a, b) => a - b),
+    create: () => new LeftistHeap<number>(asc),
+    deserialize: (json) => LeftistHeap.deserialize<number>(json, asc),
   },
   {
     name: "WeightBiasedLeftistHeap",
-    create: () => new WeightBiasedLeftistHeap<number>((a, b) => a - b),
+    create: () => new WeightBiasedLeftistHeap<number>(asc),
     deserialize: (json) =>
-      WeightBiasedLeftistHeap.deserialize<number>(json, (a, b) => a - b),
+      WeightBiasedLeftistHeap.deserialize<number>(json, asc),
   },
 ];
 
@@ -229,7 +236,7 @@ for (const factory of factories) {
 }
 
 test("HeightBiasedLeftistHeap is the LeftistHeap implementation", () => {
-  const heap = new HeightBiasedLeftistHeap<number>((a, b) => a - b);
+  const heap = new HeightBiasedLeftistHeap<number>(asc);
   assert.equal(heap instanceof LeftistHeap, true);
   heap.build([3, 1, 2]);
   assert.equal(heap.validate(), true);
@@ -239,7 +246,7 @@ test("HeightBiasedLeftistHeap is the LeftistHeap implementation", () => {
 });
 
 test("WeightBiasedLeftistHeap tracks subtree weights", () => {
-  const heap = new WeightBiasedLeftistHeap<number>((a, b) => a - b);
+  const heap = new WeightBiasedLeftistHeap<number>(asc);
   assert.equal(heap.weight, 0);
   heap.push(10);
   assert.equal(heap.weight, 1);
@@ -253,28 +260,109 @@ test("WeightBiasedLeftistHeap tracks subtree weights", () => {
   assert.equal(heap.validate(), true);
 });
 
-test("single-ended heaps merge across implementations", () => {
-  const a = new LeftistHeap<number>((x, y) => x - y);
-  const b = new WeightBiasedLeftistHeap<number>((x, y) => x - y);
-  a.build([5, 1, 9]);
-  b.build([7, 3]);
-  a.merge(b);
-  assert.equal(a.validate(), true);
-  assert.deepEqual(drain(a), [1, 3, 5, 7, 9]);
-  assert.throws(() => b.push(2), ConsumedError);
+test("leftist merges across implementations throw UnsupportedError and leave both heaps intact", () => {
+  const classes = [LeftistHeap, WeightBiasedLeftistHeap, DoubleEndedLeftistTree] as const;
+  for (const Target of classes) {
+    for (const Source of classes) {
+      if (Target === Source) {
+        continue;
+      }
+      const target = new Target<number>(asc);
+      const source = new Source<number>(asc);
+      target.build([5, 1, 9]);
+      source.build([7, 3]);
+      assert.throws(
+        () => target.merge(source),
+        UnsupportedError,
+        `${Target.name} <- ${Source.name}`,
+      );
+      assert.equal(target.size, 3);
+      assert.equal(source.size, 2);
+      assert.equal(target.validate(), true);
+      assert.equal(source.validate(), true);
+      assert.deepEqual(drain(target), [1, 5, 9]);
+      assert.deepEqual(drain(source), [3, 7]);
+    }
+  }
+});
 
-  const c = new WeightBiasedLeftistHeap<number>((x, y) => x - y);
-  const d = new LeftistHeap<number>((x, y) => x - y);
-  c.build([4, 2]);
-  d.build([3, 1]);
-  c.merge(d);
-  assert.equal(c.validate(), true);
-  assert.deepEqual(drain(c), [1, 2, 3, 4]);
-  assert.throws(() => d.push(0), ConsumedError);
+test("leftist merge rejects skew heaps, src/heaps heaps, and plain objects without copying", () => {
+  const foreign: unknown[] = [];
+  const skew = new SkewHeap<number>(asc);
+  skew.build([2, 4]);
+  foreign.push(skew);
+  const pairing = new PairingHeap<number>(asc);
+  pairing.push(2);
+  pairing.push(4);
+  foreign.push(pairing);
+  const values = [2, 4];
+  const plain = { compare: asc, toArray: () => values, get size() { return values.length; } };
+  foreign.push(plain);
+  for (const Target of [LeftistHeap, WeightBiasedLeftistHeap, DoubleEndedLeftistTree]) {
+    for (const other of foreign) {
+      const target = new Target<number>(asc);
+      target.build([3, 1]);
+      assert.throws(
+        () => target.merge(other as LeftistHeapContract<number>),
+        UnsupportedError,
+      );
+      assert.equal(target.size, 2);
+      assert.equal(target.validate(), true);
+    }
+  }
+  assert.equal(skew.size, 2);
+  assert.equal(pairing.size, 2);
+  assert.equal(values.length, 2);
+});
+
+test("leftist merge with a different comparator throws TypeError and corrupts nothing", () => {
+  const desc = (a: number, b: number): number => b - a;
+  for (const Heap of [LeftistHeap, WeightBiasedLeftistHeap, DoubleEndedLeftistTree]) {
+    const a = new Heap<number>(asc);
+    const b = new Heap<number>(desc);
+    [1, 5, 9].forEach((value) => a.push(value));
+    [2, 6, 10].forEach((value) => b.push(value));
+    assert.throws(() => a.merge(b), TypeError, Heap.name);
+    assert.equal(a.validate(), true);
+    assert.equal(b.validate(), true);
+    assert.deepEqual(drain(a), [1, 5, 9]);
+    assert.deepEqual(drain(b), [10, 6, 2]);
+
+    // An equivalent but distinct function is still a different comparator.
+    const c = new Heap<number>(asc);
+    const d = new Heap<number>((x, y) => x - y);
+    c.push(1);
+    d.push(2);
+    assert.throws(() => c.merge(d), TypeError);
+    assert.equal(d.size, 1);
+
+    // Two default comparators are the same shared function.
+    const e = new Heap<number>();
+    const f = new Heap<number>();
+    e.push(3);
+    f.push(1);
+    e.merge(f);
+    assert.deepEqual(drain(e), [1, 3]);
+    assert.throws(() => f.size, ConsumedError);
+  }
+});
+
+test("leftist heaps hand their elements over through takeForMerge", () => {
+  for (const Heap of [LeftistHeap, WeightBiasedLeftistHeap, DoubleEndedLeftistTree]) {
+    const heap = new Heap<number>(asc);
+    heap.build([4, 2, 8]);
+    if (heap instanceof DoubleEndedLeftistTree) {
+      heap.popMax();
+    }
+    const values = heap[takeForMerge]();
+    assert.deepEqual(values.slice().sort(asc), heap instanceof DoubleEndedLeftistTree ? [2, 4] : [2, 4, 8]);
+    assert.throws(() => heap.size, ConsumedError);
+    assert.throws(() => heap[takeForMerge](), ConsumedError);
+  }
 });
 
 test("DoubleEndedLeftistTree basics and aliases", () => {
-  const tree = new DoubleEndedLeftistTree<number>((a, b) => a - b);
+  const tree = new DoubleEndedLeftistTree<number>(asc);
   assert.equal(tree.size, 0);
   assert.equal(tree.rank, 0);
   assert.equal(tree.peek(), undefined);
@@ -309,21 +397,21 @@ test("DoubleEndedLeftistTree basics and aliases", () => {
 });
 
 test("DoubleEndedLeftistTree keeps one element consistent", () => {
-  const minTree = new DoubleEndedLeftistTree<number>((a, b) => a - b);
+  const minTree = new DoubleEndedLeftistTree<number>(asc);
   minTree.push(42);
   assert.equal(minTree.popMin(), 42);
   assert.equal(minTree.peekMax(), undefined);
   assert.equal(minTree.validate(), true);
 
-  const maxTree = new DoubleEndedLeftistTree<number>((a, b) => a - b);
+  const maxTree = new DoubleEndedLeftistTree<number>(asc);
   maxTree.push(42);
   assert.equal(maxTree.popMax(), 42);
   assert.equal(maxTree.peekMin(), undefined);
   assert.equal(maxTree.validate(), true);
 });
 
-test("DoubleEndedLeftistTree purges stale entries lazily", () => {
-  const tree = new DoubleEndedLeftistTree<number>((a, b) => a - b);
+test("DoubleEndedLeftistTree removes the twin entry from the other side", () => {
+  const tree = new DoubleEndedLeftistTree<number>(asc);
   for (let value = 0; value < 100; value++) {
     tree.push(value);
   }
@@ -345,7 +433,7 @@ test("DoubleEndedLeftistTree purges stale entries lazily", () => {
 
 test("DoubleEndedLeftistTree matches a sorted reference over random operations", () => {
   const random = seeded(0x5eed);
-  const tree = new DoubleEndedLeftistTree<number>((a, b) => a - b);
+  const tree = new DoubleEndedLeftistTree<number>(asc);
   const reference: number[] = [];
   for (let step = 0; step < 800; step++) {
     const choice = random();
@@ -373,9 +461,9 @@ test("DoubleEndedLeftistTree matches a sorted reference over random operations",
 test("DoubleEndedLeftistTree merges random trees without losing elements", () => {
   const random = seeded(0xb1e5);
   const reference: number[] = [];
-  const tree = new DoubleEndedLeftistTree<number>((a, b) => a - b);
+  const tree = new DoubleEndedLeftistTree<number>(asc);
   for (let round = 0; round < 50; round++) {
-    const other = new DoubleEndedLeftistTree<number>((a, b) => a - b);
+    const other = new DoubleEndedLeftistTree<number>(asc);
     const count = Math.floor(random() * 15);
     for (let index = 0; index < count; index++) {
       const value = Math.floor(random() * 200);
@@ -413,7 +501,7 @@ test("DoubleEndedLeftistTree merges random trees without losing elements", () =>
 });
 
 test("DoubleEndedLeftistTree build and serialization", () => {
-  const tree = new DoubleEndedLeftistTree<number>((a, b) => a - b);
+  const tree = new DoubleEndedLeftistTree<number>(asc);
   tree.build([7, 1, 5, 2, 9, 3, 2]);
   assert.equal(tree.size, 7);
   assert.equal(tree.validate(), true);
@@ -447,9 +535,9 @@ test("DoubleEndedLeftistTree build and serialization", () => {
   );
 });
 
-test("DoubleEndedLeftistTree merges double-ended and single-ended heaps", () => {
-  const a = new DoubleEndedLeftistTree<number>((x, y) => x - y);
-  const b = new DoubleEndedLeftistTree<number>((x, y) => x - y);
+test("DoubleEndedLeftistTree merges double-ended trees", () => {
+  const a = new DoubleEndedLeftistTree<number>(asc);
+  const b = new DoubleEndedLeftistTree<number>(asc);
   a.build([5, 1, 9]);
   b.build([7, 3]);
   b.popMax();
@@ -462,33 +550,105 @@ test("DoubleEndedLeftistTree merges double-ended and single-ended heaps", () => 
   assert.throws(() => b.size, ConsumedError);
   assert.deepEqual([a.popMin(), a.popMax(), a.popMin(), a.popMin()], [1, 9, 3, 5]);
 
-  const c = new DoubleEndedLeftistTree<number>((x, y) => x - y);
-  const d = new LeftistHeap<number>((x, y) => x - y);
-  d.build([8, 2, 6]);
-  c.merge(d);
-  assert.equal(c.validate(), true);
-  assert.equal(c.peekMin(), 2);
-  assert.equal(c.peekMax(), 8);
-  assert.throws(() => d.peek(), ConsumedError);
-
-  const e = new WeightBiasedLeftistHeap<number>((x, y) => x - y);
-  e.build([10, 0]);
-  c.merge(e);
-  assert.equal(c.validate(), true);
-  assert.equal(c.size, 5);
-  assert.deepEqual(
-    [c.popMin(), c.popMax(), c.popMin(), c.popMax(), c.popMin()],
-    [0, 10, 2, 8, 6],
-  );
-  assert.throws(() => e.size, ConsumedError);
-
-  const f = new DoubleEndedLeftistTree<number>((x, y) => x - y);
+  const f = new DoubleEndedLeftistTree<number>(asc);
   f.build([1, 2]);
   assert.throws(() => f.merge(f), TypeError);
 });
 
+test("DoubleEndedLeftistTree rank ignores removed elements", () => {
+  const tree = new DoubleEndedLeftistTree<number>(asc);
+  [1, 2, 3].forEach((value) => tree.push(value));
+  tree.popMax();
+  tree.popMax();
+  assert.equal(tree.size, 1);
+  assert.equal(tree.rank, 1);
+  tree.popMin();
+  assert.equal(tree.rank, 0);
+
+  const random = seeded(0x7a2c);
+  const other = new DoubleEndedLeftistTree<number>(asc);
+  for (let step = 0; step < 300; step++) {
+    if (other.size === 0 || random() < 0.6) {
+      other.push(step);
+    } else if (random() < 0.5) {
+      other.popMax();
+    } else {
+      other.popMin();
+    }
+    assert.equal(other.rank <= Math.log2(other.size + 1), true, `step ${step}`);
+    assert.equal(other.validate(), true, `step ${step}`);
+  }
+});
+
+test("DoubleEndedLeftistTree peeks are O(1) after many pops from the other side", () => {
+  let calls = 0;
+  const counting = (a: number, b: number): number => {
+    calls++;
+    return a - b;
+  };
+  const tree = new DoubleEndedLeftistTree<number>(counting);
+  for (let value = 0; value < 20_000; value++) {
+    tree.push(value);
+    tree.popMax();
+  }
+  tree.push(1e9);
+  calls = 0;
+  assert.equal(tree.peekMin(), 1e9);
+  assert.equal(tree.peekMax(), 1e9);
+  assert.equal(calls, 0);
+});
+
+test("DoubleEndedLeftistTree space is O(n), not O(total pushes)", () => {
+  let calls = 0;
+  const counting = (a: number, b: number): number => {
+    calls++;
+    return a - b;
+  };
+  const tree = new DoubleEndedLeftistTree<number>(counting);
+  tree.push(1e9);
+  for (let value = 0; value < 20_000; value++) {
+    tree.push(value);
+    assert.equal(tree.popMin(), value);
+  }
+  assert.equal(tree.size, 1);
+  calls = 0;
+  assert.equal(tree.validate(), true);
+  // validate walks both internal trees; with stale entries retained it would visit 20 001 nodes.
+  assert.equal(calls <= 4, true, `validate made ${calls} comparisons`);
+  assert.deepEqual(tree.toArray(), [1e9]);
+  assert.deepEqual(JSON.parse(tree.serialize()).values, [1e9]);
+  assert.equal(tree.popMax(), 1e9);
+  assert.equal(tree.isEmpty(), true);
+});
+
+test("DoubleEndedLeftistTree pops stay logarithmic on adversarial sequences", () => {
+  let calls = 0;
+  const counting = (a: number, b: number): number => {
+    calls++;
+    return a - b;
+  };
+  const random = seeded(0xadd5);
+  const tree = new DoubleEndedLeftistTree<number>(counting);
+  tree.build(Array.from({ length: 1 << 14 }, () => Math.floor(random() * 1e6)));
+  let worst = 0;
+  for (let step = 0; step < 4000; step++) {
+    calls = 0;
+    if (step % 3 === 0) {
+      tree.popMin();
+    } else if (step % 3 === 1) {
+      tree.popMax();
+    } else {
+      tree.push(Math.floor(random() * 1e6));
+    }
+    worst = Math.max(worst, calls);
+  }
+  // Each pop melds two right spines in both trees: a small multiple of log2(n) = 14.
+  assert.equal(worst <= 8 * 15, true, `worst operation made ${worst} comparisons`);
+  assert.equal(tree.validate(), true);
+});
+
 test("DoubleEndedLeftistTree clear and iterator invalidation", () => {
-  const tree = new DoubleEndedLeftistTree<number>((a, b) => a - b);
+  const tree = new DoubleEndedLeftistTree<number>(asc);
   tree.build([3, 1, 2]);
   const iterator = tree[Symbol.iterator]();
   tree.push(4);

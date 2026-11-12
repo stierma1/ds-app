@@ -1,8 +1,11 @@
 import {
   assertDefined,
+  assertMergeCompatible,
   ContainerBase,
   ConsumedError,
   resolveComparator,
+  takeForMerge,
+  UnsupportedError,
 } from "../core/index.ts";
 import type { Comparator } from "../core/index.ts";
 import { serializeLeftist } from "./serialization.ts";
@@ -117,24 +120,34 @@ export abstract class LeftistHeapBase<T>
   }
 
   /**
-   * O(n): validates and removes every element of `other`. Same-implementation merges bypass this
-   * with a cheaper meld, but every path marks a library heap consumed.
+   * O(n): hands every element to a merge in another module and marks this heap consumed. Leftist
+   * merges never call this: they only meld their own implementation.
    */
-  protected extractForMerge(other: LeftistHeap<T>): T[] {
-    if (other === this) {
-      throw new TypeError("cannot merge a heap with itself");
-    }
-    if (!(other instanceof LeftistHeapBase)) {
-      const values = other.toArray();
-      for (const value of values) {
-        assertDefined(value);
-      }
-      return values;
-    }
-    other.assertLive();
-    const values = other.collectItems();
-    other.markConsumed();
+  [takeForMerge](): T[] {
+    this.assertLive();
+    const values = this.collectItems();
+    this.markConsumed();
     return values;
+  }
+
+  /**
+   * O(1) merge guard: rejects a consumed receiver, self-merge, a different comparator (TypeError),
+   * and any implementation other than `kind` (UnsupportedError, because melding it would mean
+   * copying its elements, which misses the O(log n) bound), then a consumed argument. Nothing is
+   * mutated before every check passes.
+   */
+  protected acceptMerge(
+    other: LeftistHeap<T>,
+    kind: abstract new (...args: never[]) => LeftistHeapBase<unknown>,
+  ): void {
+    this.assertLive();
+    assertMergeCompatible(this, other);
+    if (!(other instanceof kind)) {
+      throw new UnsupportedError(
+        `${this.constructor.name} can only merge another ${kind.name} in O(log n)`,
+      );
+    }
+    (other as unknown as LeftistHeapBase<T>).assertLive();
   }
 
   protected requireValue(value: T, name = "value"): void {

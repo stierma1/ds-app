@@ -120,3 +120,19 @@ export function parseEvents(
 export function readTyped<T>(value: unknown, name: string): T {
   return readValue<T>(value, name);
 }
+
+/**
+ * O(1) wrapper for deserializers: runs `restore` and reports any RangeError raised while rebuilding
+ * from a payload (bad geometry, out-of-range keys or counters) as the TypeError the serialization
+ * contract requires for malformed input.
+ */
+export function restoreFromPayload<R>(type: string, restore: () => R): R {
+  try {
+    return restore();
+  } catch (error) {
+    if (error instanceof RangeError) {
+      throw new TypeError(`Invalid ${type} payload: ${error.message}`);
+    }
+    throw error;
+  }
+}

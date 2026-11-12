@@ -33,6 +33,10 @@ Shared members come from [`Container`](./00-common-contract.md#container);
 - `merge` is destructive and consumes `other`; the returned heap owns both
   sets of elements, and any operation on `other` afterwards throws
   `ConsumedError`.
+- `SkewHeap` and `RecursiveSkewHeap` share one node structure and merge with
+  each other; merging any other implementation throws `UnsupportedError`, and a
+  different comparator function throws `TypeError`, before either heap is
+  changed.
 - `push` is `merge` with a singleton heap.
 - `pop` melds the root's left and right subtrees.
 - No rank or size metadata is stored at nodes; the tree shape can be highly
@@ -63,7 +67,11 @@ the total cost is O(n), whereas repeated `push` is O(n log n).
   it walks the right spines of both heaps, links the smaller root, and swaps
   children on the way back. It avoids stack overflow on degenerate shapes.
 - `RecursiveSkewHeap` implements the textbook recursive meld and is provided for
-  reference and teaching.
+  reference and teaching. Its recursion depth equals the meld path length, which
+  can reach Θ(n) (for example, alternating-sign inserts build a right spine of
+  n/2 nodes that the next push of a larger key walks), so it throws
+  `RangeError` (call-stack overflow) from about 2×10^4 elements on Node's
+  default stack; a meld that overflows leaves both heaps unchanged.
 - A max-heap is obtained by reversing the comparator.
 - Skew heaps are not stable; equal priorities are ordered arbitrarily.
 

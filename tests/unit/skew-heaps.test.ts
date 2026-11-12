@@ -4,10 +4,17 @@ import {
   ConcurrentModificationError,
   ConsumedError,
   IterativeSkewHeap,
+  LeftistHeap,
+  PairingHeap,
   RecursiveSkewHeap,
   SkewHeap,
+  takeForMerge,
+  UnsupportedError,
 } from "../../src/index.ts";
 import type { SkewHeap as SkewHeapContract } from "../../src/skew-heaps/types.ts";
+
+/** One shared comparator: merge requires both heaps to use the same comparator function. */
+const asc = (a: number, b: number): number => a - b;
 
 function seeded(seed: number): () => number {
   let state = seed >>> 0;
@@ -35,14 +42,14 @@ interface Factory {
 const factories: Factory[] = [
   {
     name: "SkewHeap",
-    create: () => new SkewHeap<number>((a, b) => a - b),
-    deserialize: (json) => SkewHeap.deserialize<number>(json, (a, b) => a - b),
+    create: () => new SkewHeap<number>(asc),
+    deserialize: (json) => SkewHeap.deserialize<number>(json, asc),
   },
   {
     name: "RecursiveSkewHeap",
-    create: () => new RecursiveSkewHeap<number>((a, b) => a - b),
+    create: () => new RecursiveSkewHeap<number>(asc),
     deserialize: (json) =>
-      RecursiveSkewHeap.deserialize<number>(json, (a, b) => a - b),
+      RecursiveSkewHeap.deserialize<number>(json, asc),
   },
 ];
 
@@ -258,8 +265,8 @@ test("iterative and recursive melds agree on random workloads", () => {
 });
 
 test("skew heaps merge across iterative and recursive implementations", () => {
-  const iterative = new SkewHeap<number>((a, b) => a - b);
-  const recursive = new RecursiveSkewHeap<number>((a, b) => a - b);
+  const iterative = new SkewHeap<number>(asc);
+  const recursive = new RecursiveSkewHeap<number>(asc);
   iterative.build([5, 1, 9]);
   recursive.build([7, 3, 5]);
   iterative.merge(recursive);
@@ -268,14 +275,94 @@ test("skew heaps merge across iterative and recursive implementations", () => {
   assert.throws(() => recursive.push(0), ConsumedError);
   assert.deepEqual(drain(iterative), [1, 3, 5, 5, 7, 9]);
 
-  const other = new RecursiveSkewHeap<number>((a, b) => a - b);
-  const target = new SkewHeap<number>((a, b) => a - b);
+  const other = new RecursiveSkewHeap<number>(asc);
+  const target = new SkewHeap<number>(asc);
   other.build([8, 2, 6]);
   target.build([4, 0]);
   other.merge(target);
   assert.equal(other.validate(), true);
   assert.throws(() => target.size, ConsumedError);
   assert.deepEqual(drain(other), [0, 2, 4, 6, 8]);
+});
+
+test("skew merge rejects leftist heaps, src/heaps heaps, and plain objects without copying", () => {
+  const leftist = new LeftistHeap<number>(asc);
+  leftist.build([2, 4]);
+  const pairing = new PairingHeap<number>(asc);
+  pairing.push(2);
+  pairing.push(4);
+  const values = [2, 4];
+  const plain = { compare: asc, toArray: () => values, get size() { return values.length; } };
+  for (const Heap of [SkewHeap, RecursiveSkewHeap]) {
+    for (const other of [leftist, pairing, plain] as unknown[]) {
+      const target = new Heap<number>(asc);
+      target.build([3, 1]);
+      assert.throws(() => target.merge(other as SkewHeapContract<number>), UnsupportedError);
+      assert.equal(target.size, 2);
+      assert.equal(target.validate(), true);
+    }
+  }
+  assert.equal(leftist.size, 2);
+  assert.equal(leftist.validate(), true);
+  assert.equal(pairing.size, 2);
+  assert.equal(values.length, 2);
+});
+
+test("skew merge with a different comparator throws TypeError and corrupts nothing", () => {
+  const desc = (a: number, b: number): number => b - a;
+  const classes = [SkewHeap, RecursiveSkewHeap] as const;
+  for (const Target of classes) {
+    for (const Source of classes) {
+      const a = new Target<number>(asc);
+      const b = new Source<number>(desc);
+      [1, 5, 9].forEach((value) => a.push(value));
+      [2, 6, 10].forEach((value) => b.push(value));
+      assert.throws(() => a.merge(b), TypeError, `${Target.name} <- ${Source.name}`);
+      assert.equal(a.validate(), true);
+      assert.equal(b.validate(), true);
+      assert.deepEqual(drain(a), [1, 5, 9]);
+      assert.deepEqual(drain(b), [10, 6, 2]);
+
+      const c = new Target<number>(asc);
+      const d = new Source<number>((x, y) => x - y);
+      d.push(2);
+      assert.throws(() => c.merge(d), TypeError);
+      assert.equal(d.size, 1);
+
+      const e = new Target<number>();
+      const f = new Source<number>();
+      e.push(3);
+      f.push(1);
+      e.merge(f);
+      assert.deepEqual(drain(e), [1, 3]);
+      assert.throws(() => f.size, ConsumedError);
+    }
+  }
+});
+
+test("skew heaps hand their elements over through takeForMerge", () => {
+  for (const Heap of [SkewHeap, RecursiveSkewHeap]) {
+    const heap = new Heap<number>(asc);
+    heap.build([4, 2, 8]);
+    assert.deepEqual(heap[takeForMerge]().sort(asc), [2, 4, 8]);
+    assert.throws(() => heap.size, ConsumedError);
+    assert.throws(() => heap[takeForMerge](), ConsumedError);
+  }
+});
+
+test("iterative SkewHeap melds a long right spine without recursion", () => {
+  // Alternating-sign inserts leave a right spine of n/2 nodes; a push larger than every key then
+  // walks all of it. RecursiveSkewHeap recurses once per spine node here (see doc 05).
+  const heap = new SkewHeap<number>();
+  const count = 200_000;
+  for (let index = 0; index < count; index++) {
+    heap.push(index % 2 ? index : -index);
+  }
+  heap.push(1e12);
+  heap.push(2e12);
+  assert.equal(heap.size, count + 2);
+  assert.equal(heap.validate(), true);
+  assert.equal(heap.peek(), -(count - 2));
 });
 
 test("iterative SkewHeap handles degenerate monotone insertion without recursion", () => {

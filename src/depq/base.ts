@@ -1,6 +1,7 @@
 import {
   assertDefined,
   ContainerBase,
+  defaultComparator,
   resolveComparator,
 } from "../core/index.ts";
 import type { Comparator } from "../core/index.ts";
@@ -92,8 +93,17 @@ export abstract class DepqBase<T> extends ContainerBase<T> implements Depq<T> {
     );
   }
 
+  /**
+   * O(1): rejects `undefined`, and, when the queue uses the default comparator, any value that
+   * comparator cannot order (null, plain objects, ...). The check self-compares through
+   * defaultComparator so it throws the same TypeError the first real comparison would, even when
+   * the value is the queue's only element and would otherwise never be compared.
+   */
   protected requireValue(value: T, name = "value"): void {
     assertDefined(value, name);
+    if (this.compare === defaultComparator) {
+      defaultComparator(value, value);
+    }
   }
 
   /**
@@ -104,7 +114,7 @@ export abstract class DepqBase<T> extends ContainerBase<T> implements Depq<T> {
   build(values: Iterable<T>): void {
     const items = [...values];
     for (const value of items) {
-      assertDefined(value);
+      this.requireValue(value);
     }
     this.releaseStorage();
     this._size = 0;

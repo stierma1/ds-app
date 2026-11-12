@@ -1,4 +1,4 @@
-import { assertDefined } from "../core/index.ts";
+import { assertDefined, assertMergeCompatible } from "../core/index.ts";
 import type { Comparator } from "../core/index.ts";
 import { HeapBase, implicitHeight } from "./base.ts";
 import { parseHeap } from "./serialization.ts";
@@ -8,8 +8,9 @@ import type { Heap } from "./types.ts";
  * Binary min-heap in a 0-based array, the reference implementation of the module.
  *
  * Fast: O(1) peek, O(log n) push/pop (2 comparisons per level, cache-friendly contiguous storage),
- * Floyd's O(n) build, and an O(n) destructive merge with another BinaryHeap. Slow: arbitrary melds
- * with other heap implementations degrade to O(m log n) re-insertion. Indexed operations such as
+ * Floyd's O(n) build, and an O(n + m) destructive merge: another BinaryHeap is concatenated, and any
+ * other heap that implements takeForMerge is copied out (and consumed) before re-heapifying. Indexed
+ * operations such as
  * decreaseKey live on IndexedBinaryHeap. Duplicate values are allowed, and ties are broken
  * arbitrarily. Iteration follows heap order, not sorted order.
  */
@@ -67,14 +68,13 @@ export class BinaryHeap<T> extends HeapBase<T> {
   }
 
   /**
-   * Destructive merge. Two BinaryHeaps concatenate and re-heapify in O(n + m); any other Heap is
-   * drained and re-pushed, which is O(m log(n + m)). `other` is consumed either way.
+   * O(n + m) destructive merge. A different comparator or self-merge throws TypeError. Two
+   * BinaryHeaps concatenate and re-heapify; any other heap is taken through takeForMerge (an
+   * argument without it throws UnsupportedError) and re-heapified. `other` is consumed.
    */
   merge(other: Heap<T>): BinaryHeap<T> {
     this.assertLive();
-    if (other === this) {
-      throw new TypeError("cannot merge a heap with itself");
-    }
+    assertMergeCompatible(this, other);
     if (other instanceof BinaryHeap) {
       other.assertLive();
       const otherItems = other._items;
@@ -90,7 +90,7 @@ export class BinaryHeap<T> extends HeapBase<T> {
       this.touch();
       return this;
     }
-    const values = this.extractForMerge(other);
+    const values = this.takeForeignForMerge(other, true);
     for (const value of values) {
       this._items.push(value);
     }
@@ -104,11 +104,12 @@ export class BinaryHeap<T> extends HeapBase<T> {
 
   /** O(1): height in edges of the implicit complete binary tree. */
   get height(): number {
+    this.assertLive();
     return implicitHeight(this._size, 2);
   }
 
   /** O(n): checks size, defined values, and the parent <= child invariant. */
-  validate(): true | string {
+  protected checkInvariants(): true | string {
     if (this._items.length !== this._size) {
       return "array length does not match size";
     }

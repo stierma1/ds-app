@@ -45,12 +45,13 @@ double-ended operations come from
 | `MinMaxHeap` | O(log n) | O(log n) | O(log n) | O(1) | O(1) | O(n) | O(n) |
 | `Deap` | O(log n) | O(log n) | O(log n) | O(1) | O(1) | O(n log n)* | O(n) |
 | `IntervalHeap` | O(log n) | O(log n) | O(log n) | O(1) | O(1) | O(n log n)* | O(n) |
+| `SymmetricMinMaxHeap` | O(log n) | O(log n) | O(log n) | O(1) | O(1) | O(n log n)* | O(n) |
 | `TwoHeapDepq` (lazy) | O(log n) | O(log n) amortized | O(log n) amortized | O(1) amortized | O(1) amortized | O(n) | O(n) |
 | `SortedArrayDepq` | O(n) | O(1) | O(1) | O(1) | O(1) | O(n log n) | O(n) |
 | `BalancedTreeDepq` | O(log n) | O(log n) | O(log n) | O(log n) | O(log n) | O(n log n) | O(n) |
 
 Definitions: `n` = number of elements. `MinMaxHeap` and `TwoHeapDepq` support
-O(n) construction. `Deap` and `IntervalHeap` rebuild by repeated insertion in
+O(n) construction. `Deap`, `IntervalHeap`, and `SymmetricMinMaxHeap` rebuild by repeated insertion in
 this implementation, which is O(n log n); the published structures also admit
 O(n) bottom-up construction. `TwoHeapDepq` keeps a min-heap and a
 max-heap with lazy invalidation; each element can be stale in one heap, so
@@ -68,11 +69,17 @@ either end of a sorted array.
   the other subtree.
 - `IntervalHeap` stores intervals whose endpoints are a min and a max; each
   node holds one or two elements.
+- `SymmetricMinMaxHeap` (Arvind & Pandu Rangan) is a complete binary tree
+  with an empty root: every left sibling is ≤ its right sibling, and every
+  node lies between the left and right children of its grandparent. The
+  minimum is at node 2 and the maximum at node 3 (1-based). Insertion moves a
+  hole up the grandparent chain; deletion moves a hole down one side, trading
+  with the sibling when the sibling order would break.
 - `TwoHeapDepq` is the simplest correct implementation and a useful reference
   model, but its lazy deletion gives it higher constants.
 - `BalancedTreeDepq` is the ordered-map implementation; it supports the same
   interface through `min`/`max`/`delete`.
-- All four array-based structures use contiguous storage and are cache-friendly.
+- All five array-based structures use contiguous storage and are cache-friendly.
 
 ## Example
 

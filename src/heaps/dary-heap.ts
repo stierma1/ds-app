@@ -1,5 +1,6 @@
 import {
   assertDefined,
+  assertMergeCompatible,
   assertInteger,
   readInteger,
 } from "../core/index.ts";
@@ -78,14 +79,13 @@ export class DaryHeap<T> extends HeapBase<T> {
   }
 
   /**
-   * Destructive merge: same-class heaps concatenate and re-heapify in O(n + m); other heaps are
-   * drained and re-pushed. `other` is consumed in both cases.
+   * O(n + m) destructive merge. A different comparator or self-merge throws TypeError. Same-class
+   * heaps concatenate and re-heapify; any other heap is taken through takeForMerge (an argument
+   * without it throws UnsupportedError) and re-heapified. `other` is consumed.
    */
   merge(other: Heap<T>): DaryHeap<T> {
     this.assertLive();
-    if (other === this) {
-      throw new TypeError("cannot merge a heap with itself");
-    }
+    assertMergeCompatible(this, other);
     if (other instanceof DaryHeap) {
       other.assertLive();
       const otherItems = other._items;
@@ -101,7 +101,7 @@ export class DaryHeap<T> extends HeapBase<T> {
       this.touch();
       return this;
     }
-    const values = this.extractForMerge(other);
+    const values = this.takeForeignForMerge(other, true);
     for (const value of values) {
       this._items.push(value);
     }
@@ -115,11 +115,12 @@ export class DaryHeap<T> extends HeapBase<T> {
 
   /** O(1): height in edges of the implicit complete d-ary tree. */
   get height(): number {
+    this.assertLive();
     return implicitHeight(this._size, this.arity);
   }
 
   /** O(n): checks size, defined values, and parent <= child for every non-root slot. */
-  validate(): true | string {
+  protected checkInvariants(): true | string {
     if (this._items.length !== this._size) {
       return "array length does not match size";
     }

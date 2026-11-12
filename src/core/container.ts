@@ -161,3 +161,42 @@ export abstract class ContainerBase<T> implements Container<T> {
     return iterator;
   }
 }
+
+/**
+ * Cross-module merge hook. A container that can hand its elements to a merge in another module
+ * implements this method: it returns every stored element (in any order) and marks itself
+ * consumed, so later operations throw ConsumedError. A merge that can only meet its documented
+ * bound for its own implementation throws UnsupportedError instead of calling this.
+ */
+export const takeForMerge: unique symbol = Symbol.for("ds-app.takeForMerge");
+
+/** A container that supports {@link takeForMerge}. */
+export interface MergeSource<T> {
+  readonly compare: Comparator<T>;
+  [takeForMerge](): T[];
+}
+
+/** O(1): true when `value` implements the {@link takeForMerge} protocol. */
+export function isMergeSource<T>(value: unknown): value is MergeSource<T> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as Partial<MergeSource<T>>)[takeForMerge] === "function"
+  );
+}
+
+/**
+ * O(1) merge guard shared by every meldable queue: rejects self-merge and a comparator that is
+ * not the same function (melding two orders silently corrupts heap order).
+ */
+export function assertMergeCompatible<T>(
+  self: { readonly compare: Comparator<T> },
+  other: { readonly compare?: Comparator<T> },
+): void {
+  if ((other as unknown) === self) {
+    throw new TypeError("cannot merge a heap with itself");
+  }
+  if (other.compare !== self.compare) {
+    throw new TypeError("cannot merge heaps that use different comparators");
+  }
+}

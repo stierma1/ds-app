@@ -158,14 +158,15 @@ test("DaryHeap supports every arity and matches BinaryHeap", () => {
 });
 
 test("DaryHeap build, merge, serialization, and height", () => {
-  const heap = new DaryHeap<number>((a, b) => a - b, { arity: 3 });
+  const numeric = (a: number, b: number): number => a - b;
+  const heap = new DaryHeap<number>(numeric, { arity: 3 });
   heap.build(Array.from({ length: 40 }, (_, index) => 39 - index));
   assert.equal(heap.validate(), true);
   const restored = DaryHeap.deserialize<number>(heap.serialize(), (a, b) => a - b);
   assert.equal(restored.arity, 3);
   assert.deepEqual(drain(restored), ascending(40));
 
-  const other = new DaryHeap<number>((a, b) => a - b, { arity: 3 });
+  const other = new DaryHeap<number>(numeric, { arity: 3 });
   other.build([100, -1, 50]);
   heap.merge(other);
   assert.equal(heap.validate(), true);

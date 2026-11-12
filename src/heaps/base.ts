@@ -2,7 +2,10 @@ import {
   assertDefined,
   ContainerBase,
   ConsumedError,
+  isMergeSource,
   resolveComparator,
+  takeForMerge,
+  UnsupportedError,
 } from "../core/index.ts";
 import type { Comparator } from "../core/index.ts";
 import { serializeHeap } from "./serialization.ts";
@@ -41,16 +44,21 @@ export abstract class HeapBase<T> extends ContainerBase<T> implements Heap<T> {
   abstract pop(): T | undefined;
   abstract peek(): T | undefined;
   abstract merge(other: Heap<T>): Heap<T>;
-  abstract override validate(): true | string;
   abstract get height(): number;
 
-  /** Storage snapshot in iteration order; must not check live state (extractForMerge does). */
+  /** O(n): implementation invariants; called by validate() once the heap is known to be live. */
+  protected abstract checkInvariants(): true | string;
+
+  /** Storage snapshot in iteration order; must not check live state (callers do). */
   protected abstract collectItems(): T[];
 
   /** Drops every reference held by the storage without touching the version counter. */
   protected abstract releaseStorage(): void;
 
   protected abstract get serializationType(): string;
+
+  /** Called by clear() and build() before storage is dropped; heaps with handles retire them. */
+  protected invalidateHandles(): void {}
 
   /** Extra serialized fields (arity, configuration) appended to the `values` payload. */
   protected serializationPayload(): Record<string, unknown> {
@@ -68,6 +76,7 @@ export abstract class HeapBase<T> extends ContainerBase<T> implements Heap<T> {
     for (const value of items) {
       assertDefined(value);
     }
+    this.invalidateHandles();
     this.releaseStorage();
     this._size = 0;
     for (const value of items) {
@@ -76,9 +85,33 @@ export abstract class HeapBase<T> extends ContainerBase<T> implements Heap<T> {
     this.touch();
   }
 
-  /** O(1): number of stored elements. */
+  /** O(1): number of stored elements; throws ConsumedError after a merge consumed this heap. */
   override get size(): number {
+    this.assertLive();
     return this._size;
+  }
+
+  /** O(1): `size === 0`; throws ConsumedError after a merge consumed this heap. */
+  override isEmpty(): boolean {
+    this.assertLive();
+    return this._size === 0;
+  }
+
+  /** O(n): heap order, links, size, and indexes; throws ConsumedError on a consumed heap. */
+  override validate(): true | string {
+    this.assertLive();
+    return this.checkInvariants();
+  }
+
+  /**
+   * O(n): cross-module merge hook (see takeForMerge in core). Hands over every element in
+   * iteration order and marks this heap consumed.
+   */
+  [takeForMerge](): T[] {
+    this.assertLive();
+    const values = this.collectItems();
+    this.markConsumed();
+    return values;
   }
 
   /** O(n): fresh array in iteration order. */
@@ -96,6 +129,7 @@ export abstract class HeapBase<T> extends ContainerBase<T> implements Heap<T> {
   /** O(1): drops every element and bumps the version. */
   override clear(): void {
     this.assertLive();
+    this.invalidateHandles();
     this.releaseStorage();
     this._size = 0;
     this.touch();
@@ -127,23 +161,26 @@ export abstract class HeapBase<T> extends ContainerBase<T> implements Heap<T> {
   }
 
   /**
-   * O(n): validates and removes every element of `other`. Same-implementation merges can bypass this
-   * with a cheaper meld, but every path marks `other` consumed.
+   * Cross-class half of the shared merge rule; the caller has already run assertMergeCompatible
+   * and handled the same-class meld. When copying `other`'s m elements still meets this heap's
+   * documented merge bound (`copyMeetsBound`), the elements are taken through takeForMerge, which
+   * consumes `other` whatever module it comes from. Otherwise, or when `other` does not implement
+   * takeForMerge, this throws UnsupportedError before anything is mutated.
    */
-  protected extractForMerge(other: Heap<T>): T[] {
-    if (other === this) {
-      throw new TypeError("cannot merge a heap with itself");
+  protected takeForeignForMerge(other: Heap<T>, copyMeetsBound: boolean): T[] {
+    const name = this.constructor.name;
+    if (!copyMeetsBound) {
+      throw new UnsupportedError(
+        `${name} can only merge another ${name} within its documented merge bound`,
+      );
     }
-    if (!(other instanceof HeapBase)) {
-      const values = other.toArray();
-      for (const value of values) {
-        assertDefined(value);
-      }
-      return values;
+    if (!isMergeSource<T>(other)) {
+      throw new UnsupportedError(`${name}.merge requires a heap that implements takeForMerge`);
     }
-    other.assertLive();
-    const values = other.collectItems();
-    other.markConsumed();
+    const values = other[takeForMerge]();
+    for (const value of values) {
+      assertDefined(value);
+    }
     return values;
   }
 

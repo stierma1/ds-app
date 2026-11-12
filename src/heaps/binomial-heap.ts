@@ -1,3 +1,4 @@
+import { assertMergeCompatible } from "../core/index.ts";
 import type { Comparator } from "../core/index.ts";
 import { HeapBase } from "./base.ts";
 import { parseHeap } from "./serialization.ts";
@@ -65,13 +66,13 @@ export class BinomialHeap<T> extends HeapBase<T> {
 
   /**
    * Destructive merge. Two binomial heaps combine in O(log n) by binary-carry addition over the
-   * degree arrays; any other Heap is drained and pushed. `other` is consumed either way.
+   * degree arrays. A different comparator or self-merge throws TypeError; any other heap throws
+   * UnsupportedError (copying m elements cannot meet the O(log n) bound) and neither heap is
+   * changed. `other` is consumed.
    */
   merge(other: Heap<T>): BinomialHeap<T> {
     this.assertLive();
-    if (other === this) {
-      throw new TypeError("cannot merge a heap with itself");
-    }
+    assertMergeCompatible(this, other);
     if (other instanceof BinomialHeap) {
       other.assertLive();
       const otherTrees = other._trees;
@@ -83,10 +84,7 @@ export class BinomialHeap<T> extends HeapBase<T> {
       this.touch();
       return this;
     }
-    const values = this.extractForMerge(other);
-    for (const value of values) {
-      this.push(value);
-    }
+    this.takeForeignForMerge(other, false);
     return this;
   }
 
@@ -103,7 +101,7 @@ export class BinomialHeap<T> extends HeapBase<T> {
   }
 
   /** O(n): validates tree shape, degrees, heap order, size, and the cached minimum. */
-  validate(): true | string {
+  protected checkInvariants(): true | string {
     let count = 0;
     let minimum: BinomialNode<T> | null = null;
     let minIsRoot = false;

@@ -6,6 +6,7 @@ import {
 } from "../core/index.ts";
 import {
   parseEntries,
+  restoreFromPayload,
   serializeEntries,
 } from "./serialization.ts";
 import type { MonotonePriorityQueue } from "./types.ts";
@@ -26,10 +27,26 @@ function bitLength(value: number): number {
   return bits;
 }
 
+/**
+ * O(1): number of bits in `a XOR b` for non-negative safe integers, i.e. one plus the index of the
+ * highest bit where they differ (0 when equal). Splits into 32-bit halves so keys up to
+ * Number.MAX_SAFE_INTEGER work; the plain `^` operator truncates to 32 bits.
+ */
+function differingBitLength(a: number, b: number): number {
+  if (a === b) {
+    return 0;
+  }
+  const high = Math.floor(a / 0x100000000) ^ Math.floor(b / 0x100000000);
+  if (high !== 0) {
+    return 64 - Math.clz32(high);
+  }
+  return 32 - Math.clz32((a >>> 0) ^ (b >>> 0));
+}
+
 function readMaxKey(maxKey: number): number {
   assertInteger(maxKey, "maxKey");
-  if (maxKey < 0) {
-    throw new RangeError("maxKey must be non-negative");
+  if (maxKey < 0 || maxKey > Number.MAX_SAFE_INTEGER) {
+    throw new RangeError("maxKey must be in [0, Number.MAX_SAFE_INTEGER]");
   }
   return maxKey;
 }
@@ -47,6 +64,8 @@ export class BucketQueue<T> extends ContainerBase<T> implements MonotonePriority
   readonly key: (value: T) => number;
   readonly maxKey: number;
   private _buckets: Array<Array<MonotoneEntry<T>>>;
+  /** Indices of buckets whose array is non-empty (live or cancelled entries), so clear is O(n). */
+  private _nonEmpty = new Set<number>();
   private _active = new Map<T, MonotoneEntry<T>>();
   private _lastPopped = -1;
   private _cursor: number;
@@ -79,8 +98,7 @@ export class BucketQueue<T> extends ContainerBase<T> implements MonotonePriority
     if (this._cursor > this.maxKey) {
       return undefined;
     }
-    const bucket = this._buckets[this._cursor];
-    const entry = this.takeFromBucket(bucket);
+    const entry = this.takeFromBucket(this._cursor);
     if (entry === undefined) {
       return undefined;
     }
@@ -101,8 +119,8 @@ export class BucketQueue<T> extends ContainerBase<T> implements MonotonePriority
     if (this._cursor > this.maxKey) {
       return undefined;
     }
+    this.trimCancelled(this._cursor);
     const bucket = this._buckets[this._cursor];
-    this.trimCancelled(bucket);
     return bucket.length === 0 ? undefined : bucket[bucket.length - 1].value;
   }
 
@@ -157,7 +175,7 @@ export class BucketQueue<T> extends ContainerBase<T> implements MonotonePriority
     return this.snapshotIterator(this.toArray());
   }
 
-  /** O(1): allocates fresh empty buckets. */
+  /** O(n): empties only the buckets that hold entries; the bucket array itself is kept. */
   override clear(): void {
     this.reset();
     this.touch();
@@ -174,6 +192,9 @@ export class BucketQueue<T> extends ContainerBase<T> implements MonotonePriority
       const bucket = this._buckets[key];
       if (!Array.isArray(bucket)) {
         return `bucket ${key} is not an array`;
+      }
+      if ((bucket.length > 0) !== this._nonEmpty.has(key)) {
+        return `bucket ${key} is not tracked as non-empty`;
       }
       for (const entry of bucket) {
         if (entry.cancelled) {
@@ -229,7 +250,10 @@ export class BucketQueue<T> extends ContainerBase<T> implements MonotonePriority
     });
   }
 
-  /** O(n + maxKey): rebuilds the buckets from explicit keys and validates the payload. */
+  /**
+   * O(n + maxKey): rebuilds the buckets from explicit keys and validates the payload. Malformed
+   * payloads, including out-of-range keys, maxKey, or lastPopped, throw TypeError.
+   */
   static deserialize<T>(
     json: unknown,
     key: (value: T) => number,
@@ -237,16 +261,23 @@ export class BucketQueue<T> extends ContainerBase<T> implements MonotonePriority
     const { record, entries } = parseEntries(json, "BucketQueue");
     const maxKey = readInteger(record, "maxKey");
     const lastPopped = readInteger(record, "lastPopped");
-    const queue = new BucketQueue<T>(key, maxKey);
-    queue.restore(entries as Array<[number, T]>, lastPopped);
-    if (queue.validate() !== true) {
-      throw new TypeError(`Invalid BucketQueue payload: ${queue.validate()}`);
-    }
-    return queue;
+    return restoreFromPayload("BucketQueue", () => {
+      const queue = new BucketQueue<T>(key, maxKey);
+      queue.restore(entries as Array<[number, T]>, lastPopped);
+      const valid = queue.validate();
+      if (valid !== true) {
+        throw new TypeError(`Invalid BucketQueue payload: ${valid}`);
+      }
+      return queue;
+    });
   }
 
+  /** O(non-empty buckets): empties the used buckets in place and resets the cursor. */
   private reset(): void {
-    this._buckets = Array.from({ length: this.maxKey + 1 }, () => []);
+    for (const index of this._nonEmpty) {
+      this._buckets[index] = [];
+    }
+    this._nonEmpty.clear();
     this._active = new Map();
     this._size = 0;
     this._lastPopped = -1;
@@ -268,7 +299,11 @@ export class BucketQueue<T> extends ContainerBase<T> implements MonotonePriority
 
   private insertEntry(value: T, key: number): void {
     const entry: MonotoneEntry<T> = { value, key, cancelled: false };
-    this._buckets[key].push(entry);
+    const bucket = this._buckets[key];
+    if (bucket.length === 0) {
+      this._nonEmpty.add(key);
+    }
+    bucket.push(entry);
     this._active.set(value, entry);
     this._size++;
     if (key < this._cursor) {
@@ -278,24 +313,33 @@ export class BucketQueue<T> extends ContainerBase<T> implements MonotonePriority
 
   private advanceCursor(): void {
     while (this._cursor <= this.maxKey) {
-      const bucket = this._buckets[this._cursor];
-      this.trimCancelled(bucket);
-      if (bucket.length > 0) {
+      this.trimCancelled(this._cursor);
+      if (this._buckets[this._cursor].length > 0) {
         return;
       }
       this._cursor++;
     }
   }
 
-  private trimCancelled(bucket: Array<MonotoneEntry<T>>): void {
+  /** Amortized O(1): drops cancelled entries from the top of bucket `index`. */
+  private trimCancelled(index: number): void {
+    const bucket = this._buckets[index];
     while (bucket.length > 0 && bucket[bucket.length - 1].cancelled) {
       bucket.pop();
     }
+    if (bucket.length === 0) {
+      this._nonEmpty.delete(index);
+    }
   }
 
-  private takeFromBucket(bucket: Array<MonotoneEntry<T>>): MonotoneEntry<T> | undefined {
-    this.trimCancelled(bucket);
-    return bucket.length === 0 ? undefined : bucket.pop();
+  private takeFromBucket(index: number): MonotoneEntry<T> | undefined {
+    this.trimCancelled(index);
+    const bucket = this._buckets[index];
+    const entry = bucket.pop();
+    if (bucket.length === 0) {
+      this._nonEmpty.delete(index);
+    }
+    return entry;
   }
 
   private hasActive(bucket: Array<MonotoneEntry<T>>): boolean {
@@ -314,42 +358,50 @@ export class BucketQueue<T> extends ContainerBase<T> implements MonotonePriority
     }
     this.reset();
     this._lastPopped = lastPopped;
-    this._cursor = this.maxKey + 1;
     for (const [key, value] of entries) {
       this.validateKey(key);
       assertDefined(value);
       if (key < lastPopped) {
         throw new TypeError("serialized entry is below lastPopped");
       }
-      const entry: MonotoneEntry<T> = { value, key, cancelled: false };
-      this._buckets[key].push(entry);
-      this._active.set(value, entry);
-      this._size++;
-      if (key < this._cursor) {
-        this._cursor = key;
-      }
+      this.insertEntry(value, key);
     }
   }
 }
 
+interface RadixEntry<T> {
+  value: T;
+  key: number;
+  /** Bucket that currently holds the entry and its position there (swap-removal is O(1)). */
+  bucket: number;
+  index: number;
+}
+
 /**
- * Radix heap for monotone integer keys in `[0, maxKey]`. Buckets are indexed by the highest bit in
- * `key XOR lastPopped`, so a pop redistributes only the first non-empty bucket; each element moves
+ * Radix heap for monotone integer keys in `[0, maxKey]` (maxKey up to Number.MAX_SAFE_INTEGER).
+ * Buckets are indexed by the bit length of `key XOR base`, where `base` is the last popped key, so
+ * bucket ranges double and every key in a lower bucket is smaller than every key in a higher one. A
+ * pop redistributes only the first non-empty bucket around its minimum; each element moves down
  * O(log C) times over its life, giving O(log C) amortized pop and O(1) push.
  *
- * `peek` caches the next minimum without restructuring, so repeated peeks are O(1). decreaseKey
- * cancels the old entry and inserts at the smaller key in O(1). Values are indexed by identity;
- * duplicates are allowed but decreaseKey targets the most recently pushed one. Iteration is in
- * bucket order, not sorted order.
+ * `peek` is O(1): the heap keeps a pointer to a minimum entry, updated on push and decreaseKey in
+ * O(1) and recomputed by pop from the first non-empty bucket, whose minimum is tracked per bucket.
+ * decreaseKey removes the old entry (O(1) swap-removal) and inserts at the smaller key. Values are
+ * indexed by identity; duplicates are allowed but decreaseKey targets the most recently pushed one.
+ * Iteration is in bucket order, not sorted order.
  */
 export class RadixHeap<T> extends ContainerBase<T> implements MonotonePriorityQueue<T> {
   readonly key: (value: T) => number;
   readonly maxKey: number;
-  private _buckets: Array<Array<MonotoneEntry<T>>>;
-  private _active = new Map<T, MonotoneEntry<T>>();
+  private _buckets: Array<Array<RadixEntry<T>>> = [];
+  /** Minimum entry of each bucket, or null when empty; meaningless while `_stale[i]`. */
+  private _bucketMin: Array<RadixEntry<T> | null> = [];
+  /** True when bucket i's tracked minimum was removed and has not been recomputed yet. */
+  private _stale: boolean[] = [];
+  private _active = new Map<T, RadixEntry<T>>();
+  private _min: RadixEntry<T> | null = null;
   private _base = 0;
   private _lastPopped = -1;
-  private _peekCache: MonotoneEntry<T> | null | undefined = undefined;
 
   constructor(key: (value: T) => number, maxKey: number) {
     super();
@@ -358,7 +410,7 @@ export class RadixHeap<T> extends ContainerBase<T> implements MonotonePriorityQu
     }
     this.key = key;
     this.maxKey = readMaxKey(maxKey);
-    this._buckets = this.createBuckets();
+    this.reset();
   }
 
   /** O(1): inserts into the bucket selected by its highest differing bit. */
@@ -372,34 +424,36 @@ export class RadixHeap<T> extends ContainerBase<T> implements MonotonePriorityQu
     this.touch();
   }
 
-  /** O(log C) amortized: redistributes the first non-empty bucket and removes its minimum. */
+  /**
+   * O(log C) amortized: removes the tracked minimum, redistributing its bucket around it first when
+   * it is not already in bucket 0, then finds the next minimum among the O(log C) bucket minima.
+   */
   pop(): T | undefined {
-    this._peekCache = undefined;
-    const entry = this.extractMinimum();
-    if (entry === undefined) {
+    const entry = this._min;
+    if (entry === null) {
       return undefined;
     }
+    if (entry.bucket !== 0) {
+      this.redistribute(entry.bucket, entry.key);
+    }
+    this.removeEntry(entry);
     if (this._active.get(entry.value) === entry) {
       this._active.delete(entry.value);
     }
-    this._size--;
-    this._base = entry.key;
     this._lastPopped = entry.key;
+    this._min = this.findMinimum();
     this.touch();
     return entry.value;
   }
 
-  /** O(1) amortized: cached minimum; the first call after a mutation scans the buckets. */
+  /** O(1): the tracked minimum. */
   peek(): T | undefined {
-    if (this._peekCache === undefined) {
-      this._peekCache = this.findMinimum();
-    }
-    return this._peekCache === null ? undefined : this._peekCache.value;
+    return this._min === null ? undefined : this._min.value;
   }
 
   /**
-   * O(1): cancels the current entry and inserts a replacement at the smaller key. Returns false
-   * when the value is absent, the key would increase, or the key is below the last popped key.
+   * O(1): removes the current entry and inserts a replacement at the smaller key. Returns false
+   * when the value is absent or the key would increase; throws RangeError below the last popped key.
    */
   decreaseKey(value: T, newKey: number): boolean {
     assertDefined(value);
@@ -414,9 +468,9 @@ export class RadixHeap<T> extends ContainerBase<T> implements MonotonePriorityQu
     if (newKey === entry.key) {
       return true;
     }
-    entry.cancelled = true;
-    this._size--;
-    this._peekCache = undefined;
+    this.removeEntry(entry);
+    // The replacement key is smaller than the removed one, so if the removed entry was the minimum
+    // the replacement becomes the new minimum inside insertEntry.
     this.insertEntry(value, newKey);
     this.touch();
     return true;
@@ -431,14 +485,12 @@ export class RadixHeap<T> extends ContainerBase<T> implements MonotonePriorityQu
     this.touch();
   }
 
-  /** O(n + log C): values in bucket order, skipping cancelled entries. */
+  /** O(n + log C): values in bucket order. */
   override toArray(): T[] {
     const values: T[] = [];
     for (const bucket of this._buckets) {
       for (const entry of bucket) {
-        if (!entry.cancelled) {
-          values.push(entry.value);
-        }
+        values.push(entry.value);
       }
     }
     return values;
@@ -449,13 +501,13 @@ export class RadixHeap<T> extends ContainerBase<T> implements MonotonePriorityQu
     return this.snapshotIterator(this.toArray());
   }
 
-  /** O(1): drops every bucket and index entry. */
+  /** O(log C): drops every bucket and index entry. */
   override clear(): void {
     this.reset();
     this.touch();
   }
 
-  /** O(n + log C): validates bucket indices, keys, counts, and the monotone bounds. */
+  /** O(n + log C): validates bucket indices, keys, counts, minima, and the monotone bounds. */
   override validate(): true | string {
     if (this._buckets.length !== bitLength(this.maxKey) + 1) {
       return "bucket count does not match maxKey";
@@ -467,35 +519,61 @@ export class RadixHeap<T> extends ContainerBase<T> implements MonotonePriorityQu
       return "lastPopped is out of range";
     }
     let count = 0;
-    const seen = new Set<MonotoneEntry<T>>();
+    let minimum: RadixEntry<T> | null = null;
+    const seen = new Set<RadixEntry<T>>();
     for (let index = 0; index < this._buckets.length; index++) {
       const bucket = this._buckets[index];
-      for (const entry of bucket) {
-        if (entry.cancelled) {
-          continue;
-        }
+      let bucketMinimum: RadixEntry<T> | null = null;
+      for (let position = 0; position < bucket.length; position++) {
+        const entry = bucket[position];
         if (entry.value === undefined) {
           return "bucket contains an undefined value";
         }
-        this.validateKey(entry.key);
-        if (entry.key < this._lastPopped) {
+        if (entry.bucket !== index || entry.index !== position) {
+          return "entry position bookkeeping is inconsistent";
+        }
+        if (!Number.isSafeInteger(entry.key) || entry.key < 0 || entry.key > this.maxKey) {
+          return `entry key ${entry.key} is out of range`;
+        }
+        if (entry.key < this._lastPopped || entry.key < this._base) {
           return "active entry is below the last popped key";
         }
         const expected = this.bucketIndex(entry.key);
         if (expected !== index) {
           return `entry with key ${entry.key} is in bucket ${index}, expected ${expected}`;
         }
+        if (bucketMinimum === null || entry.key < bucketMinimum.key) {
+          bucketMinimum = entry;
+        }
         count++;
         seen.add(entry);
       }
+      const tracked = this._bucketMin[index];
+      if (bucketMinimum === null) {
+        if (tracked !== null || this._stale[index]) {
+          return `empty bucket ${index} still tracks a minimum`;
+        }
+      } else if (!this._stale[index] && (tracked === null || tracked.bucket !== index || tracked.key !== bucketMinimum.key)) {
+        return `bucket ${index} tracks the wrong minimum`;
+      }
+      if (minimum === null && bucketMinimum !== null) {
+        minimum = bucketMinimum;
+      }
     }
     if (count !== this._size) {
-      return `size ${this._size} does not match active entry count ${count}`;
+      return `size ${this._size} does not match entry count ${count}`;
     }
-    for (const [, entry] of this._active) {
-      if (entry.cancelled || !seen.has(entry)) {
-        return "index points to a cancelled or missing entry";
+    for (const entry of this._active.values()) {
+      if (!seen.has(entry)) {
+        return "index points to a missing entry";
       }
+    }
+    if (minimum === null) {
+      if (this._min !== null) {
+        return "empty heap still has a minimum";
+      }
+    } else if (this._min === null || !seen.has(this._min) || this._min.key !== minimum.key) {
+      return "minimum pointer is not a minimum entry";
     }
     return true;
   }
@@ -505,9 +583,7 @@ export class RadixHeap<T> extends ContainerBase<T> implements MonotonePriorityQu
     const entries: Array<[number, T]> = [];
     for (const bucket of this._buckets) {
       for (const entry of bucket) {
-        if (!entry.cancelled) {
-          entries.push([entry.key, entry.value]);
-        }
+        entries.push([entry.key, entry.value]);
       }
     }
     return serializeEntries("RadixHeap", entries, {
@@ -517,7 +593,10 @@ export class RadixHeap<T> extends ContainerBase<T> implements MonotonePriorityQu
     });
   }
 
-  /** O(n + log C): rebuilds from explicit keys and validates the payload. */
+  /**
+   * O(n + log C): rebuilds from explicit keys and validates the payload. Malformed payloads,
+   * including an out-of-range maxKey, base, lastPopped, or key, throw TypeError.
+   */
   static deserialize<T>(
     json: unknown,
     key: (value: T) => number,
@@ -526,25 +605,27 @@ export class RadixHeap<T> extends ContainerBase<T> implements MonotonePriorityQu
     const maxKey = readInteger(record, "maxKey");
     const base = readInteger(record, "base");
     const lastPopped = readInteger(record, "lastPopped");
-    const queue = new RadixHeap<T>(key, maxKey);
-    queue.restore(entries as Array<[number, T]>, base, lastPopped);
-    if (queue.validate() !== true) {
-      throw new TypeError(`Invalid RadixHeap payload: ${queue.validate()}`);
-    }
-    return queue;
-  }
-
-  private createBuckets(): Array<Array<MonotoneEntry<T>>> {
-    return Array.from({ length: bitLength(this.maxKey) + 1 }, () => []);
+    return restoreFromPayload("RadixHeap", () => {
+      const queue = new RadixHeap<T>(key, maxKey);
+      queue.restore(entries as Array<[number, T]>, base, lastPopped);
+      const valid = queue.validate();
+      if (valid !== true) {
+        throw new TypeError(`Invalid RadixHeap payload: ${valid}`);
+      }
+      return queue;
+    });
   }
 
   private reset(): void {
-    this._buckets = this.createBuckets();
+    const count = bitLength(this.maxKey) + 1;
+    this._buckets = Array.from({ length: count }, () => []);
+    this._bucketMin = new Array(count).fill(null);
+    this._stale = new Array(count).fill(false);
     this._active = new Map();
+    this._min = null;
     this._size = 0;
     this._base = 0;
     this._lastPopped = -1;
-    this._peekCache = undefined;
   }
 
   private readKey(value: T): number {
@@ -561,72 +642,103 @@ export class RadixHeap<T> extends ContainerBase<T> implements MonotonePriorityQu
   }
 
   private bucketIndex(key: number): number {
-    return key === this._base ? 0 : bitLength(key ^ this._base);
+    return differingBitLength(key, this._base);
   }
 
+  /** O(1): appends to its bucket and updates the bucket and global minima. */
   private insertEntry(value: T, key: number): void {
-    const entry: MonotoneEntry<T> = { value, key, cancelled: false };
-    this._buckets[this.bucketIndex(key)].push(entry);
+    const bucketIndex = this.bucketIndex(key);
+    const bucket = this._buckets[bucketIndex];
+    const entry: RadixEntry<T> = { value, key, bucket: bucketIndex, index: bucket.length };
+    bucket.push(entry);
+    this.noteBucketMinimum(entry);
     this._active.set(value, entry);
     this._size++;
-    this._peekCache = undefined;
+    if (this._min === null || key < this._min.key) {
+      this._min = entry;
+    }
   }
 
-  private findMinimum(): MonotoneEntry<T> | null {
-    let minimum: MonotoneEntry<T> | null = null;
-    for (const bucket of this._buckets) {
-      for (const entry of bucket) {
-        if (!entry.cancelled && (minimum === null || entry.key < minimum.key)) {
-          minimum = entry;
-        }
-      }
+  /** O(1): a smaller (or, on a stale bucket, equal-to-the-lower-bound) key becomes the minimum. */
+  private noteBucketMinimum(entry: RadixEntry<T>): void {
+    const index = entry.bucket;
+    const current = this._bucketMin[index];
+    if (
+      current === null ||
+      entry.key < current.key ||
+      (this._stale[index] && (entry.key === current.key || this._buckets[index].length === 1))
+    ) {
+      // A stale minimum is still a lower bound on the bucket, so an entry at that key is exact.
+      this._bucketMin[index] = entry;
+      this._stale[index] = false;
     }
-    return minimum;
   }
 
-  private extractMinimum(): MonotoneEntry<T> | undefined {
-    const first = this._buckets[0];
-    let candidate = this.takeActive(first);
-    if (candidate !== undefined) {
-      return candidate;
+  /** O(1): swap-removes `entry` from its bucket; the caller owns the global minimum pointer. */
+  private removeEntry(entry: RadixEntry<T>): void {
+    const index = entry.bucket;
+    const bucket = this._buckets[index];
+    const last = bucket.pop() as RadixEntry<T>;
+    if (last !== entry) {
+      bucket[entry.index] = last;
+      last.index = entry.index;
     }
-    for (let index = 1; index < this._buckets.length; index++) {
+    this._size--;
+    if (bucket.length === 0) {
+      this._bucketMin[index] = null;
+      this._stale[index] = false;
+    } else if (this._bucketMin[index] === entry) {
+      this._stale[index] = true;
+    }
+  }
+
+  /**
+   * O(size of the bucket), charged to the elements, which all move to lower buckets: makes `base`
+   * the bucket's minimum key and re-buckets every entry relative to it. Only called on the first
+   * non-empty bucket, so the lower buckets are empty and receive fresh minima.
+   */
+  private redistribute(index: number, minimumKey: number): void {
+    const entries = this._buckets[index];
+    this._buckets[index] = [];
+    this._bucketMin[index] = null;
+    this._stale[index] = false;
+    this._base = minimumKey;
+    for (const entry of entries) {
+      const target = this.bucketIndex(entry.key);
+      const bucket = this._buckets[target];
+      entry.bucket = target;
+      entry.index = bucket.length;
+      bucket.push(entry);
+      this.noteBucketMinimum(entry);
+    }
+  }
+
+  /**
+   * O(log C) to find the first non-empty bucket, plus a scan of that bucket only when its tracked
+   * minimum was removed by decreaseKey since it was last computed.
+   */
+  private findMinimum(): RadixEntry<T> | null {
+    for (let index = 0; index < this._buckets.length; index++) {
       const bucket = this._buckets[index];
-      const entries = bucket.filter((entry) => !entry.cancelled);
-      if (entries.length === 0) {
-        bucket.length = 0;
+      if (bucket.length === 0) {
         continue;
       }
-      let minimumKey = entries[0].key;
-      for (const entry of entries) {
-        if (entry.key < minimumKey) {
-          minimumKey = entry.key;
+      if (index === 0) {
+        return bucket[bucket.length - 1];
+      }
+      if (this._stale[index]) {
+        let minimum = bucket[0];
+        for (const entry of bucket) {
+          if (entry.key < minimum.key) {
+            minimum = entry;
+          }
         }
+        this._bucketMin[index] = minimum;
+        this._stale[index] = false;
       }
-      bucket.length = 0;
-      this._base = minimumKey;
-      for (const entry of entries) {
-        this._buckets[this.bucketIndex(entry.key)].push(entry);
-      }
-      candidate = this.takeActive(this._buckets[0]);
-      if (candidate === undefined) {
-        throw new Error("radix heap invariant violated: redistributed bucket has no minimum");
-      }
-      return candidate;
+      return this._bucketMin[index];
     }
-    return undefined;
-  }
-
-  private takeActive(bucket: Array<MonotoneEntry<T>>): MonotoneEntry<T> | undefined {
-    for (let index = bucket.length - 1; index >= 0; index--) {
-      const entry = bucket[index];
-      if (!entry.cancelled) {
-        bucket.splice(index, 1);
-        return entry;
-      }
-    }
-    bucket.length = 0;
-    return undefined;
+    return null;
   }
 
   private restore(
@@ -648,13 +760,10 @@ export class RadixHeap<T> extends ContainerBase<T> implements MonotonePriorityQu
     for (const [key, value] of entries) {
       this.validateKey(key);
       assertDefined(value);
-      if (key < lastPopped) {
-        throw new TypeError("serialized entry is below lastPopped");
+      if (key < base || key < lastPopped) {
+        throw new TypeError("serialized entry is below base or lastPopped");
       }
-      const entry: MonotoneEntry<T> = { value, key, cancelled: false };
-      this._buckets[this.bucketIndex(key)].push(entry);
-      this._active.set(value, entry);
-      this._size++;
+      this.insertEntry(value, key);
     }
   }
 }

@@ -60,6 +60,16 @@ export interface CalendarQueueOptions {
   now?: number;
 }
 
+export interface HeapHandle<T> {
+  readonly value: T;
+}
+
+// PairingHeap<T> and FibonacciHeap<T> additionally expose:
+//   push(value: T): HeapHandle<T>;
+//   decreaseKey(target: HeapHandle<T> | T, newValue: T): boolean;
+//   delete(handle: HeapHandle<T>): boolean;
+//   readonly hasValueIndex: boolean;
+
 export interface TimingWheelOptions {
   tickSize?: number;
   slots?: number;
@@ -80,7 +90,13 @@ key would violate the requested direction.
   additive.
 - `merge` is destructive and consumes `other`; implementations that cannot
   merge cheaply rebuild in O(n). `IndexedBinaryHeap` does not support `merge`
-  and throws `UnsupportedError`.
+  and throws `UnsupportedError`. `merge` rejects self-merge and a different
+  comparator function with `TypeError`; a heap of another implementation is
+  copied in (and consumed, even from another module) through the shared
+  `takeForMerge` hook only where that still meets the receiver's merge bound
+  (`BinaryHeap`, `DaryHeap`, `SortedArrayHeap`), while `PairingHeap`,
+  `FibonacciHeap`, and `BinomialHeap`, or any receiver given an argument
+  without `takeForMerge`, throw `UnsupportedError` before either heap changes.
 - `height` is the number of edges on the longest root-to-leaf path.
 - Ties are broken arbitrarily; heaps are not stable.
 - Iteration and `toArray()` use implementation-defined heap order, not sorted
@@ -96,7 +112,8 @@ key would violate the requested direction.
   throws `RangeError`. `advance(t)` sets `now = t` and returns every event
   with time `<= t` in non-decreasing time order, ties by scheduling order.
 - `validate()` checks heap order, index consistency, and size.
-- `PairingHeap` and `FibonacciHeap` expose `decreaseKey(value, newValue)` for values unique by identity; it targets the most recently pushed node holding that value. `BucketQueue` and `RadixHeap` expose the monotone `decreaseKey(value, newKey)` with the same identity rule, cancelling the old entry and inserting the replacement.
+- `PairingHeap` and `FibonacciHeap` return a `HeapHandle` from `push`. `decreaseKey(handle, newValue)` runs in the table's `decreaseKey` bound and `delete(handle)` in O(log n) amortized. Both return `false` for a stale handle (its element was popped or deleted, or the heap was cleared or rebuilt) and throw `TypeError` for a handle of another live heap. A handle stays valid after its heap is merged into another heap of the same class and then refers to the receiving heap. Handles are not serialized; `deserialize` returns a heap with no outstanding handles.
+- `PairingHeap` and `FibonacciHeap` also accept `decreaseKey(value, newValue)` as a convenience for values unique by identity; it targets the most recently pushed node holding that value. It uses a value index that is built in O(n) on the first value-based call and maintained afterwards (`hasValueIndex`). Same-class `merge` is O(1) while neither heap has a value index; when either has one, `merge` also folds the indexes in O(min distinct values), after indexing an unindexed side in O(its size). `BucketQueue` and `RadixHeap` expose the monotone `decreaseKey(value, newKey)` with the same identity rule, cancelling the old entry and inserting the replacement.
 - `DaryHeap` defaults to arity 4. `CalendarQueue` defaults to 32 buckets of width 1, and `TimingWheel` defaults to tick size 1, 64 slots, and 4 levels; both grow their geometry as events arrive.
 - With `tickSize > 1`, the timing wheel quantizes event times to tick boundaries at or after the requested time, so an event is delivered when `now` reaches its tick boundary.
 
@@ -135,6 +152,12 @@ is destructive.
 | `increaseKey` | O(log n) | Sift down. |
 | `peek` / `pop` | O(1) / O(log n) | Pops the minimum entry. |
 
+Key identity follows default-comparator equality: number, bigint, and string
+keys are identified by value, `Date` keys by time, and other objects by a
+primitive `valueOf()`, so two `new Date(5)` keys are one key. Other key types
+need the constructor option `keyOf(key)`, which returns a primitive identity
+(pass it again to `deserialize`); a key with neither throws `TypeError`.
+
 ### Notes
 
 - `BinaryHeap` uses 0-based array storage and Floyd's bottom-up `build`.
@@ -151,6 +174,9 @@ is destructive.
 - `BucketQueue` keeps one bucket per integer key and a cursor that only moves
   forward; `pop` advances the cursor to the next non-empty bucket. Total cost
   of a Dijkstra run is `O(E + C)`.
+- `RadixHeap` `peek` is O(1) worst case. Its `pop` bound assumes that
+  `decreaseKey` does not repeatedly remove a bucket's tracked minimum; in that
+  pattern a `pop` can rescan that bucket to find its new minimum.
 - `RadixHeap` keeps `O(log C)` buckets whose ranges double; an element is
   redistributed at most `O(log C)` times over its life, which gives the
   amortized `pop` bound and `O(E + V log C)` for Dijkstra.

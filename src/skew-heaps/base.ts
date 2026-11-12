@@ -1,8 +1,11 @@
 import {
   assertDefined,
+  assertMergeCompatible,
   ContainerBase,
   ConsumedError,
   resolveComparator,
+  takeForMerge,
+  UnsupportedError,
 } from "../core/index.ts";
 import type { Comparator } from "../core/index.ts";
 import type { SkewNode } from "./node.ts";
@@ -135,32 +138,30 @@ export abstract class SkewHeapBase<T>
   }
 
   /**
-   * Destructive merge. Every skew-heap implementation melds in O(log n) amortized; any foreign
-   * meldable queue is drained and re-pushed. `other` is consumed either way.
+   * O(log n) amortized destructive merge. SkewHeap and RecursiveSkewHeap share one node structure,
+   * so either melds the other directly; `other` is consumed. A different comparator throws
+   * TypeError; any other implementation throws UnsupportedError (melding it would require copying
+   * its elements), and neither heap is changed.
    */
   merge(other: SkewHeap<T>): SkewHeap<T> {
     this.assertLive();
-    if (other === this) {
-      throw new TypeError("cannot merge a heap with itself");
+    assertMergeCompatible(this, other);
+    if (!(other instanceof SkewHeapBase)) {
+      throw new UnsupportedError(
+        `${this.constructor.name} can only merge another skew heap in O(log n) amortized`,
+      );
     }
-    if (other instanceof SkewHeapBase) {
-      const otherHeap = other as SkewHeapBase<T>;
-      otherHeap.assertLive();
-      const otherRoot = otherHeap._root;
-      const otherSize = otherHeap._size;
-      otherHeap.markConsumed();
-      if (otherRoot !== null) {
-        this._root = this.meldNodes(this._root, otherRoot);
-        this._size += otherSize;
-      }
-      this.touch();
-      return this;
+    const otherHeap = other as SkewHeapBase<T>;
+    otherHeap.assertLive();
+    const otherRoot = otherHeap._root;
+    const otherSize = otherHeap._size;
+    if (otherRoot !== null) {
+      // Meld before consuming `other`: a RecursiveSkewHeap meld can overflow the call stack, and
+      // it only relinks nodes after the recursion returns, so a throw leaves both heaps intact.
+      this._root = this.meldNodes(this._root, otherRoot);
+      this._size += otherSize;
     }
-    const values = this.extractForMerge(other);
-    for (const value of values) {
-      this._root = this.meldNodes(this._root, this.createNode(value));
-    }
-    this._size += values.length;
+    otherHeap.markConsumed();
     this.touch();
     return this;
   }
@@ -219,21 +220,11 @@ export abstract class SkewHeapBase<T>
     this.touch();
   }
 
-  /** O(n): validates and removes every element of a foreign meldable queue. */
-  protected extractForMerge(other: SkewHeap<T>): T[] {
-    if (other === this) {
-      throw new TypeError("cannot merge a heap with itself");
-    }
-    if (!(other instanceof SkewHeapBase)) {
-      const values = other.toArray();
-      for (const value of values) {
-        assertDefined(value);
-      }
-      return values;
-    }
-    other.assertLive();
-    const values = other.collectItems();
-    other.markConsumed();
+  /** O(n): hands every element to a merge in another module and marks this heap consumed. */
+  [takeForMerge](): T[] {
+    this.assertLive();
+    const values = this.collectItems();
+    this.markConsumed();
     return values;
   }
 

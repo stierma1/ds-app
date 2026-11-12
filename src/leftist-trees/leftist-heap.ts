@@ -93,31 +93,20 @@ export class LeftistHeap<T> extends LeftistHeapBase<T> {
   }
 
   /**
-   * Destructive merge. Two height-biased leftist heaps meld in O(log n); any other implementation is
-   * drained and re-pushed. `other` is consumed either way.
+   * O(log n) destructive merge of two LeftistHeaps sharing one comparator. `other` is consumed. A
+   * different comparator throws TypeError; any other implementation throws UnsupportedError
+   * (melding it would require copying), and neither heap is changed.
    */
   merge(other: LeftistHeapContract<T>): LeftistHeap<T> {
-    this.assertLive();
-    if (other === this) {
-      throw new TypeError("cannot merge a heap with itself");
+    this.acceptMerge(other, LeftistHeap);
+    const source = other as LeftistHeap<T>;
+    const otherRoot = source._root;
+    const otherSize = source._size;
+    source.markConsumed();
+    if (otherRoot !== null) {
+      this._root = this.meld(this._root, otherRoot);
+      this._size += otherSize;
     }
-    if (other instanceof LeftistHeap) {
-      other.assertLive();
-      const otherRoot = other._root;
-      const otherSize = other._size;
-      other.markConsumed();
-      if (otherRoot !== null) {
-        this._root = this.meld(this._root, otherRoot);
-        this._size += otherSize;
-      }
-      this.touch();
-      return this;
-    }
-    const values = this.extractForMerge(other);
-    for (const value of values) {
-      this._root = this.meld(this._root, this.createNode(value));
-    }
-    this._size += values.length;
     this.touch();
     return this;
   }

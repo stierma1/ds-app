@@ -7,6 +7,7 @@ import {
   IntervalHeap,
   MinMaxHeap,
   SortedArrayDepq,
+  SymmetricMinMaxHeap,
   TwoHeapDepq,
 } from "../../src/index.ts";
 import type { Depq } from "../../src/depq/types.ts";
@@ -54,6 +55,12 @@ const factories: Factory[] = [
     create: () => new IntervalHeap<number>((a, b) => a - b),
     deserialize: (json) =>
       IntervalHeap.deserialize<number>(json, (a, b) => a - b),
+  },
+  {
+    name: "SymmetricMinMaxHeap",
+    create: () => new SymmetricMinMaxHeap<number>((a, b) => a - b),
+    deserialize: (json) =>
+      SymmetricMinMaxHeap.deserialize<number>(json, (a, b) => a - b),
   },
   {
     name: "TwoHeapDepq",
@@ -356,4 +363,230 @@ test("BalancedTreeDepq keeps duplicate multiplicities and AVL balance", () => {
   assert.equal(queue.popMax(), 8);
   assert.deepEqual(queue.toArray(), [2, 2, 4, 4, 4, 8, 8]);
   assert.equal(queue.validate(), true);
+});
+
+test("BalancedTreeDepq keeps distinct elements that compare equal", () => {
+  interface Item {
+    k: number;
+    id: string;
+  }
+  const byKey = (a: Item, b: Item): number => a.k - b.k;
+  const queue = new BalancedTreeDepq<Item>(byKey);
+  queue.push({ k: 1, id: "a" });
+  queue.push({ k: 1, id: "b" });
+  assert.deepEqual(queue.toArray().map((item) => item.id), ["a", "b"]);
+  assert.deepEqual(
+    (JSON.parse(queue.serialize()) as { values: Item[] }).values.map((item) => item.id),
+    ["a", "b"],
+  );
+  assert.equal(queue.popMin()?.id, "a");
+  assert.equal(queue.popMin()?.id, "b");
+  assert.equal(queue.popMin(), undefined);
+
+  // Many ties per key: every pushed object comes back exactly once, oldest-first from the min end
+  // and newest-first from the max end, and serialization keeps them all.
+  const random = seeded(0xb7ee);
+  const pushed: Item[] = [];
+  for (let index = 0; index < 600; index++) {
+    const item = { k: Math.floor(random() * 4), id: `i${index}` };
+    pushed.push(item);
+    queue.push(item);
+  }
+  assert.equal(queue.validate(), true);
+  const restored = BalancedTreeDepq.deserialize<Item>(queue.serialize(), byKey);
+  assert.deepEqual(
+    restored.toArray().map((item) => item.id),
+    queue.toArray().map((item) => item.id),
+  );
+  const stable = [...pushed].sort(byKey);
+  assert.deepEqual(queue.toArray(), stable);
+  const returned = new Set<Item>();
+  let low = 0;
+  let high = stable.length - 1;
+  while (!queue.isEmpty()) {
+    const fromMin = random() < 0.5;
+    const item = (fromMin ? queue.popMin() : queue.popMax()) as Item;
+    assert.equal(item, fromMin ? stable[low++] : stable[high--]);
+    assert.equal(returned.has(item), false);
+    returned.add(item);
+    assert.equal(queue.validate(), true);
+  }
+  assert.equal(returned.size, pushed.length);
+});
+
+test("TwoHeapDepq bounds stale entries so space stays O(n)", () => {
+  const heapsOf = (queue: TwoHeapDepq<number>): [number, number] => {
+    const internals = queue as unknown as { _minHeap: unknown[]; _maxHeap: unknown[] };
+    return [internals._minHeap.length, internals._maxHeap.length];
+  };
+  const queue = new TwoHeapDepq<number>();
+  for (let index = 0; index < 100_000; index++) {
+    queue.push(index);
+    assert.equal(queue.popMin(), index);
+  }
+  assert.equal(queue.size, 0);
+  const [minLength, maxLength] = heapsOf(queue);
+  assert.equal(minLength + maxLength <= 64, true, `heaps hold ${minLength}+${maxLength} entries`);
+  assert.equal(queue.validate(), true);
+
+  const random = seeded(0x2bea);
+  const reference: number[] = [];
+  for (let step = 0; step < 20_000; step++) {
+    if (reference.length === 0 || random() < 0.5) {
+      const value = Math.floor(random() * 1000);
+      queue.push(value);
+      reference.push(value);
+      reference.sort((left, right) => left - right);
+    } else if (random() < 0.5) {
+      assert.equal(queue.popMin(), reference.shift());
+    } else {
+      assert.equal(queue.popMax(), reference.pop());
+    }
+    const [minSize, maxSize] = heapsOf(queue);
+    assert.equal(minSize <= 2 * queue.size + 32 && maxSize <= 2 * queue.size + 32, true);
+    assert.equal(queue.peekMin(), reference[0]);
+    assert.equal(queue.peekMax(), reference[reference.length - 1]);
+  }
+  assert.equal(queue.validate(), true);
+
+  // validate reports a heap that exceeds the stale-entry bound.
+  const bloated = new TwoHeapDepq<number>();
+  bloated.push(1);
+  const internals = bloated as unknown as { _maxHeap: Array<{ value: number; id: number; active: boolean }> };
+  for (let index = 0; index < 40; index++) {
+    internals._maxHeap.push({ value: 0, id: -index - 1, active: false });
+  }
+  assert.notEqual(bloated.validate(), true);
+});
+
+test("every DEPQ rejects values the default comparator cannot order, even alone", () => {
+  const classes = [
+    MinMaxHeap,
+    Deap,
+    IntervalHeap,
+    SymmetricMinMaxHeap,
+    TwoHeapDepq,
+    SortedArrayDepq,
+    BalancedTreeDepq,
+  ];
+  for (const Queue of classes) {
+    const queue = new Queue<unknown>();
+    assert.throws(() => queue.push(null), TypeError, `${Queue.name} push(null)`);
+    assert.throws(() => queue.push({}), TypeError, `${Queue.name} push({})`);
+    assert.equal(queue.size, 0);
+    queue.push(3);
+    assert.throws(() => queue.build([1, null]), TypeError);
+    assert.throws(() => queue.build([null]), TypeError);
+    assert.deepEqual(queue.toArray(), [3], `${Queue.name} failed build leaves contents unchanged`);
+    for (const values of [[null], [null, 1], [{}]]) {
+      const json = JSON.stringify({ type: Queue.name, version: 1, values });
+      assert.throws(() => Queue.deserialize(json), TypeError, `${Queue.name} ${json}`);
+    }
+    // An explicit comparator decides what is orderable.
+    const nullable = new Queue<number | null>((a, b) => (a ?? -1) - (b ?? -1));
+    nullable.push(null);
+    nullable.push(2);
+    assert.equal(nullable.peekMin(), null);
+    assert.equal(nullable.validate(), true);
+  }
+});
+
+test("SymmetricMinMaxHeap handles sizes 0-4 and odd/even boundaries exactly", () => {
+  // Every push order of up to 4 values (with duplicates), drained by every popMin/popMax pattern.
+  const pools = [[], [7], [3, 3], [1, 2, 3], [2, 2, 1, 4], [5, 1, 5, 0]];
+  const permutations = (values: number[]): number[][] =>
+    values.length <= 1
+      ? [values]
+      : values.flatMap((value, index) =>
+          permutations([...values.slice(0, index), ...values.slice(index + 1)]).map((rest) => [value, ...rest]),
+        );
+  for (const pool of pools) {
+    for (const order of permutations(pool)) {
+      for (let pattern = 0; pattern < 1 << order.length; pattern++) {
+        const queue = new SymmetricMinMaxHeap<number>();
+        const reference: number[] = [];
+        for (const value of order) {
+          queue.push(value);
+          reference.push(value);
+          reference.sort((left, right) => left - right);
+          assert.equal(queue.validate(), true);
+          assert.equal(queue.peekMin(), reference[0]);
+          assert.equal(queue.peekMax(), reference[reference.length - 1]);
+        }
+        for (let step = 0; step < order.length; step++) {
+          const fromMax = ((pattern >> step) & 1) === 1;
+          assert.equal(fromMax ? queue.popMax() : queue.popMin(), fromMax ? reference.pop() : reference.shift());
+          assert.equal(queue.validate(), true);
+          assert.equal(queue.size, reference.length);
+          assert.equal(queue.peekMin(), reference[0]);
+          assert.equal(queue.peekMax(), reference[reference.length - 1]);
+        }
+        assert.equal(queue.popMin(), undefined);
+        assert.equal(queue.popMax(), undefined);
+      }
+    }
+  }
+  // Height in edges below the empty root, matching Deap: nodes 2-3 are level 0, 4-7 level 1.
+  const heights = [0, 0, 0, 1, 1, 1, 1, 2, 2];
+  const queue = new SymmetricMinMaxHeap<number>();
+  for (let size = 0; size < heights.length; size++) {
+    assert.equal(queue.height, heights[size], `height at size ${size}`);
+    queue.push(size);
+  }
+});
+
+test("SymmetricMinMaxHeap with comparator objects, duplicates, and serialization", () => {
+  interface Task {
+    priority: number;
+    name: string;
+  }
+  const byPriority = (a: Task, b: Task): number => a.priority - b.priority;
+  const random = seeded(0x5a11);
+  const queue = new SymmetricMinMaxHeap<Task>(byPriority);
+  const reference: Task[] = [];
+  for (let step = 0; step < 4000; step++) {
+    const roll = random();
+    if (roll < 0.5 || reference.length === 0) {
+      const task = { priority: Math.floor(random() * 8), name: `t${step}` };
+      queue.push(task);
+      reference.push(task);
+    } else {
+      reference.sort(byPriority);
+      const task = (roll < 0.75 ? queue.popMin() : queue.popMax()) as Task;
+      const expected = roll < 0.75 ? reference[0] : reference[reference.length - 1];
+      assert.equal(task.priority, (expected as Task).priority);
+      reference.splice(reference.indexOf(task), 1);
+    }
+    if (step % 97 === 0) {
+      assert.equal(queue.validate(), true);
+      const restored = SymmetricMinMaxHeap.deserialize<Task>(queue.serialize(), byPriority);
+      assert.equal(restored.validate(), true);
+      assert.deepEqual(restored.toArray(), queue.toArray());
+    }
+  }
+  assert.deepEqual(new Set(queue.toArray()), new Set(reference));
+  assert.throws(() => SymmetricMinMaxHeap.deserialize('{"type":"MinMaxHeap","version":1,"values":[]}'), TypeError);
+});
+
+test("SymmetricMinMaxHeap validate catches each violated property", () => {
+  const corrupt = (mutate: (items: number[]) => void): true | string => {
+    const queue = new SymmetricMinMaxHeap<number>();
+    queue.build([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    assert.equal(queue.validate(), true);
+    mutate((queue as unknown as { _items: number[] })._items);
+    return queue.validate();
+  };
+  // Layout after inserting 1..9: node 2 = 1 (min), node 3 = 9 (max).
+  assert.match(String(corrupt((items) => {
+    [items[4], items[5]] = [items[5] as number, items[4] as number];
+  })), /sibling/);
+  assert.notEqual(corrupt((items) => {
+    items[2] = 100;
+  }), true);
+  assert.notEqual(corrupt((items) => {
+    items[3] = -100;
+  }), true);
+  assert.notEqual(corrupt((items) => {
+    items.push(10);
+  }), true);
 });

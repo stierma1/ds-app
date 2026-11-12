@@ -25,6 +25,9 @@ function drain(heap: Heap<number>): number[] {
   return values;
 }
 
+// merge requires the same comparator function on both heaps, so every factory shares this one.
+const numeric = (a: number, b: number): number => a - b;
+
 interface Factory {
   name: string;
   create(): Heap<number>;
@@ -34,18 +37,18 @@ interface Factory {
 const factories: Factory[] = [
   {
     name: "PairingHeap",
-    create: () => new PairingHeap<number>((a, b) => a - b),
-    deserialize: (json) => PairingHeap.deserialize<number>(json, (a, b) => a - b),
+    create: () => new PairingHeap<number>(numeric),
+    deserialize: (json) => PairingHeap.deserialize<number>(json, numeric),
   },
   {
     name: "BinomialHeap",
-    create: () => new BinomialHeap<number>((a, b) => a - b),
-    deserialize: (json) => BinomialHeap.deserialize<number>(json, (a, b) => a - b),
+    create: () => new BinomialHeap<number>(numeric),
+    deserialize: (json) => BinomialHeap.deserialize<number>(json, numeric),
   },
   {
     name: "FibonacciHeap",
-    create: () => new FibonacciHeap<number>((a, b) => a - b),
-    deserialize: (json) => FibonacciHeap.deserialize<number>(json, (a, b) => a - b),
+    create: () => new FibonacciHeap<number>(numeric),
+    deserialize: (json) => FibonacciHeap.deserialize<number>(json, numeric),
   },
 ];
 
@@ -137,7 +140,7 @@ for (const factory of factories) {
 }
 
 test("PairingHeap decreaseKey cuts and re-melds", () => {
-  const heap = new PairingHeap<number>((a, b) => a - b);
+  const heap = new PairingHeap<number>(numeric);
   heap.build([10, 20, 30, 40, 50]);
   assert.equal(heap.validate(), true);
   assert.equal(heap.decreaseKey(40, 5), true);
@@ -150,7 +153,7 @@ test("PairingHeap decreaseKey cuts and re-melds", () => {
 });
 
 test("FibonacciHeap decreaseKey cuts and cascades", () => {
-  const heap = new FibonacciHeap<number>((a, b) => a - b);
+  const heap = new FibonacciHeap<number>(numeric);
   heap.build(Array.from({ length: 40 }, (_, index) => index + 10));
   assert.equal(heap.validate(), true);
   for (let index = 10; index < 30; index++) {

@@ -5,12 +5,16 @@ export {
   assertDefined,
   assertInRange,
   assertInteger,
+  assertMergeCompatible,
   ContainerBase,
+  isMergeSource,
+  takeForMerge,
 } from "./container.ts";
 export type {
   Container,
   DoubleEndedPriorityQueue,
   MeldablePriorityQueue,
+  MergeSource,
   PriorityQueue,
 } from "./container.ts";
 export {

@@ -39,6 +39,10 @@ come from [`Container`](./00-common-contract.md#container); `push`, `pop`,
 - `merge` is destructive: `a.merge(b)` consumes `b` and returns the merged
   heap. `a` must not be used independently afterwards; the returned heap owns
   both. Any operation on a consumed heap throws `ConsumedError`.
+- Both heaps must be the same implementation with the same comparator
+  function: a cross-implementation merge throws `UnsupportedError` and a
+  different comparator throws `TypeError`, in both cases before either heap is
+  changed.
 - A single-element heap has `rank = 1`; the null tree has `rank = 0`.
   Height-biased trees balance on `rank` (null-path length); weight-biased trees
   balance on subtree weight but maintain the same null-path-length `rank` for
@@ -52,7 +56,7 @@ come from [`Container`](./00-common-contract.md#container); `push`, `pop`,
   sorted order).
 - `validate()` checks heap order, the bias invariant (rank or weight), rank
   values, and size. The double-ended tree also checks that every live entry is
-  present in both internal heaps and that stale entries appear in at most one.
+  present in both internal heaps exactly once, linked to its twin.
 
 ## Implementations and complexity
 
@@ -83,10 +87,11 @@ by level; repeated `push` costs `O(n log n)`.
   null-path length, but weight is the balancing key.
 - A max-heap is the same structure with the comparator reversed, not a separate
   implementation.
-- `DoubleEndedLeftistTree` keeps a min-heap and a max-heap over entries tagged
-  with unique ids. Popping one side marks its entry stale; the other heap
-  discards it lazily when it reaches the top. Each entry is discarded once, so
-  pops are `O(log n)` amortized, and melding two double-ended trees remains
+- `DoubleEndedLeftistTree` keeps a min-tree and a max-tree whose nodes carry
+  parent pointers; each element is a pair of twin nodes, one per tree. Popping
+  one side removes the twin from the other tree eagerly (meld its children into
+  its place, then repair ranks up the path), so no stale entries exist, peeks
+  read a root, space is `O(n)`, and melding two double-ended trees remains
   `O(log n)`.
 
 ## Example

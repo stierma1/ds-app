@@ -1,17 +1,34 @@
-import { assertDefined } from "../core/index.ts";
+import { assertMergeCompatible } from "../core/index.ts";
 import type { Comparator } from "../core/index.ts";
 import { HeapBase } from "./base.ts";
 import { parseHeap } from "./serialization.ts";
+import { createOwner, findOwner, handleBrand, isHeapHandle, PushOrder, unionOwners } from "./handles.ts";
+import type { HeapHandle, HeapOwner } from "./handles.ts";
 import type { Heap } from "./types.ts";
+import { indexFromPushOrder, ValueIndex } from "./value-index.ts";
 
-interface FibonacciNode<T> {
+/** A Fibonacci-forest node; `push` hands it out as an opaque HeapHandle. */
+class FibonacciNode<T> implements HeapHandle<T> {
+  degree = 0;
+  marked = false;
+  parent: FibonacciNode<T> | null = null;
+  child: FibonacciNode<T> | null = null;
+  left: FibonacciNode<T> = this;
+  right: FibonacciNode<T> = this;
+  /** Value-index chain links (only meaningful once the heap's index is built). */
+  older: FibonacciNode<T> | null = null;
+  newer: FibonacciNode<T> | null = null;
+  pushedBefore: FibonacciNode<T> | null = null;
+  pushedAfter: FibonacciNode<T> | null = null;
+  /** Owner token of the heap holding the node; null once the node has left its heap. */
+  owner: HeapOwner | null;
   value: T;
-  degree: number;
-  marked: boolean;
-  parent: FibonacciNode<T> | null;
-  child: FibonacciNode<T> | null;
-  left: FibonacciNode<T>;
-  right: FibonacciNode<T>;
+  readonly [handleBrand] = true;
+
+  constructor(value: T, owner: HeapOwner) {
+    this.value = value;
+    this.owner = owner;
+  }
 }
 
 /**
@@ -21,28 +38,46 @@ interface FibonacciNode<T> {
  * is deferred until pop, where roots of equal degree are linked.
  *
  * The constant factors are larger than BinaryHeap and PairingHeap for pure push/pop workloads; the
- * structure pays off when decreaseKey dominates, as in Dijkstra with a dense graph. Duplicate
- * values are allowed, but decreaseKey targets the most recently pushed node with that value.
- * Iteration is a pre-order forest walk, not sorted order.
+ * structure pays off when decreaseKey dominates, as in Dijkstra with a dense graph.
+ *
+ * `push` returns a HeapHandle; decreaseKey(handle, newValue) is O(1) amortized and delete(handle)
+ * O(log n) amortized. Handles survive a merge into another FibonacciHeap; a stale handle (its
+ * element left the heap via pop, delete, clear, or build) makes both return false, and a handle of
+ * another live heap throws TypeError. decreaseKey(value, newValue) is a convenience that targets
+ * the most recently pushed node holding the value through a value index built in O(n) on first use
+ * and maintained afterwards. Without an index on either side merge is O(1); with one it also folds
+ * the indexes (O(min distinct values), plus O(size) to index an unindexed side). Iteration is a
+ * pre-order forest walk starting from the last root; deserialize rebuilds a root list with the same
+ * iteration order (handles are not serialized).
  */
 export class FibonacciHeap<T> extends HeapBase<T> {
   private _root: FibonacciNode<T> | null = null;
   private _min: FibonacciNode<T> | null = null;
-  private _byValue = new Map<T, FibonacciNode<T>>();
+  private _owner: HeapOwner = createOwner();
+  private _pushed = new PushOrder<FibonacciNode<T>>();
+  private _byValue: ValueIndex<T, FibonacciNode<T>> | null = null;
 
   constructor(compare?: Comparator<T>) {
     super(compare);
   }
 
-  /** O(1): create a singleton and splice it into the root list. */
-  push(value: T): void {
+  /** O(1): true once value-based decreaseKey has built the value index. */
+  get hasValueIndex(): boolean {
+    this.assertLive();
+    return this._byValue !== null;
+  }
+
+  /** O(1): create a singleton and splice it into the root list; returns its handle. */
+  push(value: T): HeapHandle<T> {
     this.assertLive();
     this.requireValue(value);
-    const node = this.createNode(value);
+    const node = new FibonacciNode(value, this._owner);
     this.addRoot(node);
-    this._byValue.set(value, node);
+    this._pushed.append(node);
+    this._byValue?.add(node);
     this._size++;
     this.touch();
+    return node;
   }
 
   /** O(log n) amortized: remove the min, promote its children, and consolidate equal degrees. */
@@ -68,9 +103,9 @@ export class FibonacciHeap<T> extends HeapBase<T> {
     }
     minimum.degree = 0;
     this.removeRoot(minimum);
-    if (this._byValue.get(minimum.value) === minimum) {
-      this._byValue.delete(minimum.value);
-    }
+    this._pushed.unlink(minimum);
+    this._byValue?.remove(minimum);
+    minimum.owner = null;
     this._size--;
     this._min = null;
     if (this._root !== null) {
@@ -87,16 +122,16 @@ export class FibonacciHeap<T> extends HeapBase<T> {
   }
 
   /**
-   * Decreases the value of the most recently pushed node holding `value`. Returns false when the
-   * value is absent or the new value is greater. Cuts the node and applies cascading cuts, so the
-   * operation is O(1) amortized.
+   * Lowers an element to `newValue`. `target` is a handle from push, or a value (convenience: the
+   * most recently pushed node holding it, via the lazily built value index). Returns false when the
+   * handle is stale, the value is absent, or `newValue` is greater; throws TypeError for a handle of
+   * another heap. Cuts the node and applies cascading cuts: O(1) amortized.
    */
-  decreaseKey(value: T, newValue: T): boolean {
+  decreaseKey(target: HeapHandle<T> | T, newValue: T): boolean {
     this.assertLive();
-    this.requireValue(value);
     this.requireValue(newValue, "newValue");
-    const node = this._byValue.get(value);
-    if (node === undefined) {
+    const node = this.locate(target);
+    if (node === null) {
       return false;
     }
     if (this.compare(newValue, node.value) > 0) {
@@ -105,11 +140,13 @@ export class FibonacciHeap<T> extends HeapBase<T> {
     if (Object.is(newValue, node.value)) {
       return true;
     }
-    if (this._byValue.get(value) === node) {
-      this._byValue.delete(value);
+    if (this._byValue !== null) {
+      this._byValue.remove(node);
+      node.value = newValue;
+      this._byValue.add(node);
+    } else {
+      node.value = newValue;
     }
-    node.value = newValue;
-    this._byValue.set(newValue, node);
     const parent = node.parent;
     if (parent !== null && this.compare(node.value, parent.value) < 0) {
       this.cut(node, parent);
@@ -123,20 +160,55 @@ export class FibonacciHeap<T> extends HeapBase<T> {
   }
 
   /**
-   * Destructive merge. Two Fibonacci heaps concatenate root lists in O(1); a foreign Heap is drained
-   * and pushed. `other` is consumed either way.
+   * O(log n) amortized: removes the handle's element (cut it to the root list, then pop it).
+   * Returns false for a stale handle; throws TypeError for anything that is not a live handle of
+   * this heap.
+   */
+  delete(handle: HeapHandle<T>): boolean {
+    this.assertLive();
+    if (!(handle instanceof FibonacciNode)) {
+      throw new TypeError("delete expects a FibonacciHeap handle");
+    }
+    const node = this.resolve(handle as FibonacciNode<T>);
+    if (node === null) {
+      return false;
+    }
+    const parent = node.parent;
+    if (parent !== null) {
+      this.cut(node, parent);
+      this.cascadingCut(parent);
+    }
+    this._min = node;
+    this.pop();
+    return true;
+  }
+
+  /**
+   * Destructive merge with another FibonacciHeap: the root lists are spliced and the owners united,
+   * O(1) when neither heap has a value index (with one, the indexes are folded; see the class
+   * comment). A different comparator or self-merge throws TypeError; any other heap throws
+   * UnsupportedError (copying m elements cannot meet the O(1) bound) and neither heap is changed.
+   * `other` is consumed; its handles now refer to this heap.
    */
   merge(other: Heap<T>): FibonacciHeap<T> {
     this.assertLive();
-    if (other === this) {
-      throw new TypeError("cannot merge a heap with itself");
-    }
+    assertMergeCompatible(this, other);
     if (other instanceof FibonacciHeap) {
       other.assertLive();
       const otherRoot = other._root;
       const otherMin = other._min;
       const otherSize = other._size;
-      const otherMap = other._byValue;
+      const otherOwner = other._owner;
+      const otherPushed = other._pushed;
+      let otherMap = other._byValue;
+      if (this._byValue !== null || otherMap !== null) {
+        this.ensureIndex();
+        if (otherMap === null) {
+          otherMap = indexFromPushOrder(otherPushed);
+        }
+      }
+      other._pushed = new PushOrder();
+      other._byValue = null;
       other.markConsumed();
       if (otherRoot !== null) {
         if (this._root === null) {
@@ -149,17 +221,16 @@ export class FibonacciHeap<T> extends HeapBase<T> {
           }
         }
       }
-      for (const [value, node] of otherMap) {
-        this._byValue.set(value, node);
+      this._owner = unionOwners(this._owner, otherOwner);
+      this._pushed.concat(otherPushed);
+      if (otherMap !== null) {
+        (this._byValue as ValueIndex<T, FibonacciNode<T>>).absorb(otherMap);
       }
       this._size += otherSize;
       this.touch();
       return this;
     }
-    const values = this.extractForMerge(other);
-    for (const value of values) {
-      this.push(value);
-    }
+    this.takeForeignForMerge(other, false);
     return this;
   }
 
@@ -190,16 +261,26 @@ export class FibonacciHeap<T> extends HeapBase<T> {
     return maximum;
   }
 
-  /** O(n): validates circular lists, degrees, heap order, size, and the decrease-key index. */
-  validate(): true | string {
+  /**
+   * O(n): validates circular lists, degrees, heap order, size, owners, the push-order list, and the
+   * value index if built.
+   */
+  protected checkInvariants(): true | string {
+    if (this._owner.parent !== null || this._owner.dead) {
+      return "heap owner token is not a live root";
+    }
+    const pushed = this._pushed.check();
+    if (typeof pushed === "string") {
+      return pushed;
+    }
+    if (pushed !== this._size) {
+      return `push-order list holds ${pushed} nodes, expected ${this._size}`;
+    }
     if (this._size === 0) {
       if (this._root !== null || this._min !== null) {
         return "empty heap still has a root or minimum";
       }
-      if (this._byValue.size !== 0) {
-        return "empty heap still has indexed nodes";
-      }
-      return true;
+      return this._byValue === null ? true : this._byValue.check(new Set(), 0);
     }
     if (this._root === null || this._min === null) {
       return "non-empty heap has no root or minimum";
@@ -231,22 +312,28 @@ export class FibonacciHeap<T> extends HeapBase<T> {
         return "minimum pointer is not the smallest root";
       }
     }
-    for (const [value, node] of this._byValue) {
-      if (!visited.has(node)) {
-        return "index points to a node outside the heap";
-      }
-      if (!Object.is(node.value, value)) {
-        return "index key does not match the node value";
+    for (const node of visited) {
+      if (node.owner === null || findOwner(node.owner) !== this._owner) {
+        return "node owner does not resolve to this heap";
       }
     }
-    return true;
+    for (let node = this._pushed.first; node !== null; node = node.pushedAfter) {
+      if (!visited.has(node)) {
+        return "push-order list holds a node outside the heap";
+      }
+    }
+    return this._byValue === null ? true : this._byValue.check(visited, this._size);
   }
 
-  /** O(n): rebuilds by pushing every value and validates the payload. */
+  /**
+   * O(n): rebuilds the heap as a root list of singletons and validates the payload; handles are not
+   * serialized. The walk visits roots last-to-first, so pushing the values in reverse reproduces the
+   * serialized iteration order.
+   */
   static deserialize<T>(json: unknown, compare?: Comparator<T>): FibonacciHeap<T> {
     const { values } = parseHeap(json, "FibonacciHeap");
     const heap = new FibonacciHeap<T>(compare);
-    heap.build(values as T[]);
+    heap.build((values as T[]).reverse());
     if (heap.validate() !== true) {
       throw new TypeError(`Invalid FibonacciHeap payload: ${heap.validate()}`);
     }
@@ -284,22 +371,48 @@ export class FibonacciHeap<T> extends HeapBase<T> {
   protected releaseStorage(): void {
     this._root = null;
     this._min = null;
-    this._byValue = new Map();
+    this._pushed = new PushOrder();
+    this._byValue = null;
   }
 
-  private createNode(value: T): FibonacciNode<T> {
-    const node = {
-      value,
-      degree: 0,
-      marked: false,
-      parent: null,
-      child: null,
-      left: null as unknown as FibonacciNode<T>,
-      right: null as unknown as FibonacciNode<T>,
-    };
-    node.left = node;
-    node.right = node;
+  /** clear() and build(): retire the owner token so every earlier handle is stale. */
+  protected override invalidateHandles(): void {
+    this._owner.dead = true;
+    this._owner = createOwner();
+  }
+
+  /** O(α) for a handle; builds the value index on first value-based use. Null when absent/stale. */
+  private locate(target: HeapHandle<T> | T): FibonacciNode<T> | null {
+    if (target instanceof FibonacciNode) {
+      return this.resolve(target as FibonacciNode<T>);
+    }
+    if (isHeapHandle(target)) {
+      throw new TypeError("handle belongs to a different heap class");
+    }
+    this.requireValue(target as T);
+    return this.ensureIndex().newest(target as T) ?? null;
+  }
+
+  /** O(α(n)) amortized: the node if it is live in this heap, null if stale; TypeError if foreign. */
+  private resolve(node: FibonacciNode<T>): FibonacciNode<T> | null {
+    if (node.owner === null) {
+      return null;
+    }
+    const owner = findOwner(node.owner);
+    if (owner.dead) {
+      return null;
+    }
+    if (owner !== this._owner) {
+      throw new TypeError("handle belongs to a different heap");
+    }
     return node;
+  }
+
+  private ensureIndex(): ValueIndex<T, FibonacciNode<T>> {
+    if (this._byValue === null) {
+      this._byValue = indexFromPushOrder(this._pushed);
+    }
+    return this._byValue;
   }
 
   /** O(1): inserts a singleton into the circular list and returns the (possibly new) head. */

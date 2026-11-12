@@ -18,6 +18,15 @@ export interface Heap<T> extends MeldablePriorityQueue<T> {
 }
 
 /**
+ * Key identity for IndexedBinaryHeap. Without `keyOf`, keys must be types the default comparator
+ * orders (number, bigint, string, Date, or objects whose valueOf returns one of those) and are
+ * identified by that primitive. `keyOf` maps any other key type to a primitive identity.
+ */
+export interface IndexedBinaryHeapOptions<K> {
+  keyOf?: (key: K) => string | number | bigint | boolean | symbol | null;
+}
+
+/**
  * Priorities indexed by key. `insert` rejects a comparator-equal duplicate and returns false.
  * `decreaseKey`/`increaseKey` return false when the new key moves in the wrong direction (or would
  * collide with an existing key) and never change the queue in that case.

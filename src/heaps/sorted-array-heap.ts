@@ -1,4 +1,4 @@
-import { assertDefined } from "../core/index.ts";
+import { assertDefined, assertMergeCompatible } from "../core/index.ts";
 import type { Comparator } from "../core/index.ts";
 import { HeapBase } from "./base.ts";
 import { parseHeap } from "./serialization.ts";
@@ -72,24 +72,22 @@ export class SortedArrayHeap<T> extends HeapBase<T> {
   }
 
   /**
-   * Destructive merge. Two SortedArrayHeaps merge in O(n + m); any other Heap is drained, sorted,
-   * and merged in O(m log m + n + m). `other` is consumed in both paths.
+   * Destructive merge. A different comparator or self-merge throws TypeError. Two SortedArrayHeaps
+   * merge in O(n + m); any other heap is taken through takeForMerge (an argument without it throws
+   * UnsupportedError), sorted, and merged in O(m log m + n + m). `other` is consumed.
    */
   merge(other: Heap<T>): SortedArrayHeap<T> {
     this.assertLive();
-    if (other === this) {
-      throw new TypeError("cannot merge a heap with itself");
-    }
-    const current = this.collectItems();
+    assertMergeCompatible(this, other);
     if (other instanceof SortedArrayHeap) {
       other.assertLive();
       const otherItems = other.collectItems();
       other.markConsumed();
-      this._items = this.mergeSorted(current, otherItems);
+      this._items = this.mergeSorted(this.collectItems(), otherItems);
     } else {
-      const values = this.extractForMerge(other);
+      const values = this.takeForeignForMerge(other, true);
       values.sort((a, b) => this.compare(a, b));
-      this._items = this.mergeSorted(current, values);
+      this._items = this.mergeSorted(this.collectItems(), values);
     }
     this._head = 0;
     this._size = this._items.length;
@@ -99,11 +97,12 @@ export class SortedArrayHeap<T> extends HeapBase<T> {
 
   /** O(1): a flat array has no root-to-leaf path, so the height is defined as 0. */
   get height(): number {
+    this.assertLive();
     return 0;
   }
 
   /** O(n): checks size, defined values, and non-decreasing comparator order. */
-  validate(): true | string {
+  protected checkInvariants(): true | string {
     if (this._items.length - this._head !== this._size) {
       return "active length does not match size";
     }
