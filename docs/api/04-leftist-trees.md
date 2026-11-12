@@ -1,6 +1,6 @@
 # Part 4 — Leftist Trees
 
-**Module:** `ds-app/leftist-trees` · **Source:** `src/leftist-trees/` · **Status:** planned
+**Module:** `ds-app/leftist-trees` · **Source:** `src/leftist-trees/` · **Status:** done
 
 ## Scope
 
@@ -17,13 +17,14 @@ import type { Comparator, MeldablePriorityQueue } from 'ds-app/core';
 export interface LeftistHeap<T> extends MeldablePriorityQueue<T> {
   readonly compare: Comparator<T>;
   readonly rank: number;
+  build(values: Iterable<T>): void;
   merge(other: LeftistHeap<T>): LeftistHeap<T>;
   peekMin(): T | undefined;
+  popMin(): T | undefined;
 }
 
 export interface DoubleEndedLeftistTree<T> extends LeftistHeap<T> {
   peekMax(): T | undefined;
-  popMin(): T | undefined;
   popMax(): T | undefined;
 }
 ```
@@ -39,6 +40,9 @@ come from [`Container`](./00-common-contract.md#container); `push`, `pop`,
   heap. `a` must not be used independently afterwards; the returned heap owns
   both. Any operation on a consumed heap throws `ConsumedError`.
 - A single-element heap has `rank = 1`; the null tree has `rank = 0`.
+  Height-biased trees balance on `rank` (null-path length); weight-biased trees
+  balance on subtree weight but maintain the same null-path-length `rank` for
+  this accessor.
 - `peek`/`peekMin` are O(1) and return `undefined` when empty. `peekMax` is
   available only on `DoubleEndedLeftistTree`.
 - `popMin`/`popMax` remove exactly one element. With one element left, both
@@ -46,35 +50,44 @@ come from [`Container`](./00-common-contract.md#container); `push`, `pop`,
 - Ties are broken arbitrarily.
 - `toArray()` and iteration order are implementation-defined (heap order, not
   sorted order).
-- `validate()` checks heap order, the leftist rank invariant, rank values,
-  parent links (if kept), and size.
+- `validate()` checks heap order, the bias invariant (rank or weight), rank
+  values, and size. The double-ended tree also checks that every live entry is
+  present in both internal heaps and that stale entries appear in at most one.
 
 ## Implementations and complexity
 
 | Operation | Height-biased leftist | Weight-biased leftist | Double-ended leftist |
 |-----------|-----------------------|-----------------------|----------------------|
 | `push` | O(log n) | O(log n) | O(log n) |
-| `pop` / `popMin` | O(log n) | O(log n) | O(log n) |
-| `popMax` | — | — | O(log n) |
+| `pop` / `popMin` | O(log n) | O(log n) | O(log n) amortized |
+| `popMax` | — | — | O(log n) amortized |
 | `peek` / `peekMin` | O(1) | O(1) | O(1) |
 | `peekMax` | — | — | O(1) |
 | `merge` | O(log n) | O(log n) | O(log n) |
-| `build` from n items | O(n) bottom-up | O(n) bottom-up | O(n log n) |
+| `build` from n items | O(n) bottom-up | O(n) bottom-up | O(n) bottom-up |
 | Space | O(n) | O(n) | O(n) |
 
-Definitions: `n` = number of elements. All bounds are worst case, not amortized.
+Definitions: `n` = number of elements. All bounds are worst case unless marked
+amortized.
 `build` is the two-pass bottom-up construction that melds singleton trees level
 by level; repeated `push` costs `O(n log n)`.
 
 ### Notes
 
-- Height-biased leftists store the null-path length (rank) at each node.
-- Weight-biased leftists store subtree size instead of rank and also guarantee
-  `O(log n)` meld; they tend to have a better constant for some workloads.
+- `LeftistHeap` (also exported as `HeightBiasedLeftistHeap`) stores the
+  null-path length (rank) at each node and swaps children to keep
+  `rank(left) >= rank(right)`.
+- `WeightBiasedLeftistHeap` stores subtree size and keeps
+  `weight(left) >= weight(right)`; the right subtree is at most half the weight,
+  which also guarantees `O(log n)` meld. Its `rank` accessor still reports the
+  null-path length, but weight is the balancing key.
 - A max-heap is the same structure with the comparator reversed, not a separate
   implementation.
-- The double-ended variant maintains min and max structures or a min-max
-  leftist variant; each pop is `O(log n)`.
+- `DoubleEndedLeftistTree` keeps a min-heap and a max-heap over entries tagged
+  with unique ids. Popping one side marks its entry stale; the other heap
+  discards it lazily when it reaches the top. Each entry is discarded once, so
+  pops are `O(log n)` amortized, and melding two double-ended trees remains
+  `O(log n)`.
 
 ## Example
 
@@ -94,7 +107,7 @@ merged.validate(); // true
 
 ## Conformance checklist
 
-- Random melds maintain heap order and the rank invariant.
+- Random melds maintain heap order and the rank or weight invariant.
 - Meld results agree with a reference binary heap on sorted drain order.
 - `merge` invalidates the consumed heap; using it afterwards throws
   `ConsumedError`.

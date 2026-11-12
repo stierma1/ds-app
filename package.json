@@ -11,6 +11,7 @@
     "./graphs": "./src/graphs/index.ts",
     "./hash-tables": "./src/hash-tables/index.ts",
     "./heaps": "./src/heaps/index.ts",
+    "./leftist-trees": "./src/leftist-trees/index.ts",
     "./lists": "./src/lists/index.ts",
     "./sets": "./src/sets/index.ts",
     "./trees": "./src/trees/index.ts"
@@ -22,7 +23,8 @@
     "test": "node --test tests/unit/*.test.ts",
     "typecheck": "tsc --noEmit",
     "benchmark:phase2": "node benchmarks/phase2-load-factor.ts",
-    "benchmark:phase3-heaps": "node benchmarks/phase3-heaps.ts"
+    "benchmark:phase3-heaps": "node benchmarks/phase3-heaps.ts",
+    "benchmark:phase3-leftist": "node benchmarks/phase3-leftist.ts"
   },
   "engines": {
     "node": ">=22.18"
