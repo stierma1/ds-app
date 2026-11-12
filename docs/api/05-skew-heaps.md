@@ -1,6 +1,6 @@
 # Part 5 — Skew Heaps
 
-**Module:** `ds-app/skew-heaps` · **Source:** `src/skew-heaps/` · **Status:** planned
+**Module:** `ds-app/skew-heaps` · **Source:** `src/skew-heaps/` · **Status:** done
 
 ## Scope
 
@@ -15,9 +15,14 @@ import type { Comparator, MeldablePriorityQueue } from 'ds-app/core';
 
 export interface SkewHeap<T> extends MeldablePriorityQueue<T> {
   readonly compare: Comparator<T>;
+  build(values: Iterable<T>): void;
   merge(other: SkewHeap<T>): SkewHeap<T>;
 }
 ```
+
+`SkewHeap` (also exported as `IterativeSkewHeap`) is the default iterative
+implementation; `RecursiveSkewHeap` provides the textbook recursive meld for
+reference and teaching.
 
 Shared members come from [`Container`](./00-common-contract.md#container);
 `push`, `pop`, `peek`, and `merge` come from
@@ -54,10 +59,11 @@ the total cost is O(n), whereas repeated `push` is O(n log n).
 
 ### Notes
 
-- The iterative meld is the default: it walks the right spines of both heaps,
-  links the smaller root, and swaps children on the way back. It avoids stack
-  overflow on degenerate shapes.
-- The recursive version is provided for reference and teaching.
+- The iterative meld is the default (`SkewHeap`, aliased as `IterativeSkewHeap`):
+  it walks the right spines of both heaps, links the smaller root, and swaps
+  children on the way back. It avoids stack overflow on degenerate shapes.
+- `RecursiveSkewHeap` implements the textbook recursive meld and is provided for
+  reference and teaching.
 - A max-heap is obtained by reversing the comparator.
 - Skew heaps are not stable; equal priorities are ordered arbitrarily.
 

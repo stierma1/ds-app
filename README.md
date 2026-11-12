@@ -180,7 +180,7 @@ counted through the comparator):
 | 8 | Applications | A1-A15 | v1.0 |
 
 Status legend: `planned` · `in progress` · `done`. Current status: **Phase 3,
-in progress**; `heaps` and `leftist-trees` are done, with `skew-heaps`, `depq`,
+in progress**; `heaps`, `leftist-trees`, and `skew-heaps` are done, with `depq`
 and `mwpl-trees` remaining.
 
 Dependencies flow left to right and top to bottom: trees before search trees,
@@ -251,11 +251,12 @@ adversarial constant-hash and union-find depth checks live in
 mixed workloads; decrease-key is tested for indexed variants; Huffman output is
 verified by code-length optimality and decode round-trips.
 
-**Status:** `heaps` and `leftist-trees` done. Run
-`npm run benchmark:phase3-heaps` and `npm run benchmark:phase3-leftist` for the
-mixed workload comparisons; `tests/unit/heaps-*.test.ts` and
-`tests/unit/leftist-trees.test.ts` cover the heap, indexed, monotone, timer, and
-leftist contracts.
+**Status:** `heaps`, `leftist-trees`, and `skew-heaps` done. Run
+`npm run benchmark:phase3-heaps`, `npm run benchmark:phase3-leftist`, and
+`npm run benchmark:phase3-skew` for the mixed workload comparisons;
+`tests/unit/heaps-*.test.ts`, `tests/unit/leftist-trees.test.ts`, and
+`tests/unit/skew-heaps.test.ts` cover the heap, indexed, monotone, timer,
+leftist, and skew-heap contracts.
 
 ---
 
