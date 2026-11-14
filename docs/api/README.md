@@ -19,7 +19,7 @@ static `deserialize(json): T`.
 | 6 | [Heaps](./06-heaps.md) | `PriorityQueue<T>`, `IndexedPriorityQueue<K,V>` | `ds-app/heaps` |
 | 7 | [Double-Ended Priority Queues](./07-depq.md) | `DoubleEndedPriorityQueue<T>` | `ds-app/depq` |
 | 8 | [Hash Tables](./08-hash-tables.md) | `HashMap<K,V>`, `HashSet<E>` | `ds-app/hash-tables` |
-| 9 | [Balanced Binary Trees](./09-balanced-binary-trees.md) | `OrderedMap<K,V>` | `ds-app/balanced-trees` |
+| 9 | [Balanced Binary Trees](./09-balanced-binary-trees.md) | `BalancedTree<K,V>` | `ds-app/balanced-trees` |
 | 10 | [Finger Search Trees](./10-finger-search-trees.md) | `FingerSearchMap<K,V>` | `ds-app/finger-search-trees` |
 | 11 | [Splay Trees](./11-splay-trees.md) | `OrderedMap<K,V>` | `ds-app/splay-trees` |
 | 12 | [Randomized Dictionary Structures](./12-randomized-dictionaries.md) | `OrderedMap<K,V>`, `MeldablePriorityQueue<T>` | `ds-app/randomized` |

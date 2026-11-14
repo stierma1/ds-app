@@ -1,6 +1,6 @@
 # Part 9 — Balanced Binary Trees
 
-**Module:** `ds-app/balanced-trees` · **Source:** `src/balanced-trees/` · **Status:** planned
+**Module:** `ds-app/balanced-trees` · **Source:** `src/balanced-trees/` · **Status:** in progress
 
 ## Scope
 
@@ -8,6 +8,10 @@ Ordered dictionaries with a worst-case logarithmic height guarantee: AVL trees,
 red-black trees, and weight-balanced trees. Splay trees (amortized), randomized
 trees (expected), and B-trees (high branching) are separate parts but share the
 same ordered-map contract.
+
+Current implementation: `AVLTree`, which maintains cached heights and subtree
+sizes, order statistics, range queries, destructive `join`/`split`, and
+serialization. Red-black and weight-balanced trees are still planned.
 
 ## Common API
 
@@ -63,9 +67,10 @@ here.
 
 ### Notes
 
-- **AVL:** stores a balance factor per node; height is at most
-  `1.44 log₂(n + 2)`. Insert needs at most one single or double rotation;
-  delete may cascade and use O(log n) rotations.
+- **AVL:** caches an edge height (and a subtree size) per node and derives the
+  balance factor from the children; height is at most `1.44 log₂(n + 2)`.
+  Insert needs at most one single or double rotation; delete may cascade and
+  use O(log n) rotations.
 - **Red-black:** colors nodes red/black; height is at most `2 log₂(n + 1)`.
   Insert needs at most two rotations, delete at most three.
 - **Weight-balanced (BB[α]):** keeps each subtree's size within an `α` fraction
@@ -78,9 +83,9 @@ here.
 ## Example
 
 ```js
-import { RedBlackTree } from 'ds-app/balanced-trees';
+import { AVLTree } from 'ds-app/balanced-trees';
 
-const map = new RedBlackTree((a, b) => a.localeCompare(b));
+const map = new AVLTree((a, b) => a.localeCompare(b));
 map.set('delta', 4).set('alpha', 1).set('charlie', 3);
 
 [...map.keys()];       // ['alpha', 'charlie', 'delta']

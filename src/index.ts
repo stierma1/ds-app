@@ -1,3 +1,4 @@
+export * from "./balanced-trees/index.ts";
 export * from "./core/index.ts";
 export * from "./depq/index.ts";
 export * from "./graphs/index.ts";
