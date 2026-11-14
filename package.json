@@ -32,7 +32,8 @@
     "benchmark:phase3-leftist": "node benchmarks/phase3-leftist.ts",
     "benchmark:phase3-mwpl": "node benchmarks/phase3-mwpl.ts",
     "benchmark:phase3-skew": "node benchmarks/phase3-skew.ts",
-    "benchmark:phase4-avl": "node benchmarks/phase4-avl.ts"
+    "benchmark:phase4-avl": "node benchmarks/phase4-avl.ts",
+    "benchmark:phase4-rb": "node benchmarks/phase4-rb.ts"
   },
   "engines": {
     "node": ">=22.18"

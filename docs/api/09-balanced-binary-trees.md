@@ -9,9 +9,10 @@ red-black trees, and weight-balanced trees. Splay trees (amortized), randomized
 trees (expected), and B-trees (high branching) are separate parts but share the
 same ordered-map contract.
 
-Current implementation: `AVLTree`, which maintains cached heights and subtree
-sizes, order statistics, range queries, destructive `join`/`split`, and
-serialization. Red-black and weight-balanced trees are still planned.
+Current implementations: `AVLTree` and `RedBlackTree`, which maintain cached
+heights and subtree sizes, order statistics, range queries, destructive
+`join`/`split`, and serialization. `RedBlackTree` also caches each node's
+black-height. Weight-balanced trees are still planned.
 
 ## Common API
 
@@ -72,7 +73,8 @@ here.
   Insert needs at most one single or double rotation; delete may cascade and
   use O(log n) rotations.
 - **Red-black:** colors nodes red/black; height is at most `2 log₂(n + 1)`.
-  Insert needs at most two rotations, delete at most three.
+  Insert needs at most two rotations, delete at most three; each node caches
+  its subtree black-height so `join` can locate the correct attachment point.
 - **Weight-balanced (BB[α]):** keeps each subtree's size within an `α` fraction
   of its parent; `α` controls the height/rotation tradeoff. The implementation
   defaults to a value that guarantees O(log n) height.
@@ -83,9 +85,9 @@ here.
 ## Example
 
 ```js
-import { AVLTree } from 'ds-app/balanced-trees';
+import { RedBlackTree } from 'ds-app/balanced-trees';
 
-const map = new AVLTree((a, b) => a.localeCompare(b));
+const map = new RedBlackTree((a, b) => a.localeCompare(b));
 map.set('delta', 4).set('alpha', 1).set('charlie', 3);
 
 [...map.keys()];       // ['alpha', 'charlie', 'delta']
