@@ -1,12 +1,17 @@
 # Part 11 — Splay Trees
 
-**Module:** `ds-app/splay-trees` · **Source:** `src/splay-trees/` · **Status:** planned
+**Module:** `ds-app/splay-trees` · **Source:** `src/splay-trees/` · **Status:** done
 
 ## Scope
 
 Self-adjusting binary search trees. Every access splays the accessed node to the
 root using single rotations and zig-zig/zig-zag double rotations. All operations
 are `O(log n)` amortized and can be `O(n)` for a single operation.
+
+Current implementations: `SplayTree` (bottom-up, parent pointers),
+`BottomUpSplayTree` (alias), and `TopDownSplayTree` (no parent pointers). Both
+maintain cached subtree sizes, support bounded `at`/`indexOf`, destructive
+`join`/`split`, and serialization.
 
 ## Common API
 
@@ -28,15 +33,18 @@ Shared members come from [`Container`](./00-common-contract.md#container);
 
 ### Semantics
 
-- Every `get`, `set`, and successful `delete` splays the accessed or last
-  accessed node to the root.
+- Every `get`, `has`, `set`, `delete`, `splay`, `min`, `max`,
+  `predecessor`, and `successor` splays the accessed or last accessed node to
+  the root. `at` and `indexOf` are pure order-statistic queries and do not
+  splay.
 - `splay(key)` moves the node with that key (or the last node on the search
   path) to the root; it is exposed for teaching and benchmarking.
 - `join` requires all keys in the receiver to be smaller than all keys in
   `other`; it is destructive.
 - `split(key)` returns `[< key, >= key]` and consumes the original tree.
-- `validate()` checks BST order, parent links, and size; balance is not an
-  invariant and is not validated.
+- `validate()` checks BST order, parent links (bottom-up only), cached subtree
+  sizes, and the container size; balance is not an invariant and is not
+  validated.
 - Iteration of a splay tree is ordered, but performing a `get` during iteration
   mutates the tree and invalidates the iterator.
 
@@ -50,6 +58,7 @@ Shared members come from [`Container`](./00-common-contract.md#container);
 | `splay` | O(log n) amortized, O(n) worst | O(log n) amortized, O(n) worst |
 | `min` / `max` | O(log n) amortized | O(log n) amortized |
 | `predecessor` / `successor` | O(log n) amortized | O(log n) amortized |
+| `at` / `indexOf` | O(h), O(n) for a path-shaped tree | O(h), O(n) for a path-shaped tree |
 | `range` | O(log n + k) amortized | O(log n + k) amortized |
 | `join` / `split` | O(log n) amortized | O(log n) amortized |
 | Iteration | O(n) | O(n) |
