@@ -1,11 +1,12 @@
-# balanced-trees — AVL and red-black trees
+# balanced-trees — AVL, red-black, and weight-balanced trees
 
 Ordered dictionaries with a worst-case logarithmic height. This module ships
-`AVLTree` and `RedBlackTree`; weight-balanced trees remain planned.
+`AVLTree`, `RedBlackTree`, and `WeightBalancedTree`.
 
 ## Contract
 
-`AVLTree<K, V>` and `RedBlackTree<K, V>` implement `BalancedTree<K, V>` from
+`AVLTree<K, V>`, `RedBlackTree<K, V>`, and `WeightBalancedTree<K, V>` implement
+`BalancedTree<K, V>` from
 [`docs/api/09-balanced-binary-trees.md`](../../docs/api/09-balanced-binary-trees.md),
 which extends `OrderedMap<K, V>`:
 
@@ -17,9 +18,11 @@ which extends `OrderedMap<K, V>`:
 - `split(key)` consumes the receiver and returns `[< key, >= key]`.
 - `validate()` checks BST order, parent links, cached heights/sizes, and the
   implementation balance condition. `RedBlackTree` additionally checks root
-  color, red-red edges, and equal black-height on both sides of every node.
+  color, red-red edges, and equal black-height on both sides of every node;
+  `WeightBalancedTree` checks that each non-null child is at most three times
+  its sibling's size.
 - `serialize()` / `deserialize(json, compare?)` use the stable
-  `{ type: "AVLTree" | "RedBlackTree", version: 1, entries }` shape.
+  `{ type: "AVLTree" | "RedBlackTree" | "WeightBalancedTree", version: 1, entries }` shape.
 
 ## Complexity
 
@@ -27,14 +30,14 @@ which extends `OrderedMap<K, V>`:
 
 | Operation | Time | Notes |
 |-----------|------|-------|
-| `get` / `has` | O(log n) | AVL `h ≤ 1.44 log₂(n + 2)`; red-black `h ≤ 2 log₂(n + 1)`. |
-| `set` | O(log n) | AVL needs at most one rotation; red-black at most two. |
-| `delete` | O(log n) | AVL rotations may cascade; red-black needs at most three. |
+| `get` / `has` | O(log n) | AVL `h ≤ 1.44 log₂(n + 2)`; red-black `h ≤ 2 log₂(n + 1)`; weight-balanced `h ≤ log₄/₃(n + 1)`. |
+| `set` | O(log n) | AVL needs at most one rotation; red-black at most two; weight-balanced rebuilds the modified path. |
+| `delete` | O(log n) | AVL rotations may cascade; red-black needs at most three; weight-balanced rebuilds the modified path. |
 | `min` / `max` | O(log n) | Spine walk; no cached extreme pointers. |
 | `predecessor` / `successor` | O(log n) | Works for absent keys. |
 | `at` / `indexOf` | O(log n) | Cached subtree sizes. |
 | `range` | O(log n + k) | Materialized snapshot of the k entries. |
-| `join` / `split` | O(log n) | Black-height/height-based join; destructive. |
+| `join` / `split` | O(log n) | Height/weight-based join; destructive. |
 | `height` | O(1) | Cached per node. |
 | Iteration / `toArray` | O(n) | Ascending by key. |
 | Space | O(n) | Parent pointers, height, subtree size, and (for red-black) black-height per node. |
@@ -48,14 +51,17 @@ which extends `OrderedMap<K, V>`:
 4. Every AVL balance factor `height(right) - height(left)` is in `[-1, 1]`.
 5. Every red-black node is red or black; the root is black, red nodes have
    black children, and both children of every node have the same black-height.
-6. Every child points back to its parent; the root's parent is `null`.
-7. A tree consumed by `join` or `split` throws `ConsumedError` on every later
+6. Every weight-balanced node's non-null children are each at most three times
+   the size of its sibling; a node with one null child has at most two nodes in
+   its subtree.
+7. Every child points back to its parent; the root's parent is `null`.
+8. A tree consumed by `join` or `split` throws `ConsumedError` on every later
    operation.
 
 ## Example
 
 ```js
-import { AVLTree, RedBlackTree } from 'ds-app/balanced-trees';
+import { AVLTree, RedBlackTree, WeightBalancedTree } from 'ds-app/balanced-trees';
 
 const map = new RedBlackTree((a, b) => a.localeCompare(b));
 map.set('delta', 4).set('alpha', 1).set('charlie', 3);
@@ -68,4 +74,8 @@ map.validate();       // true
 const avl = new AVLTree((a, b) => a.localeCompare(b));
 avl.set('delta', 4).set('alpha', 1).set('charlie', 3);
 avl.validate();       // true
+
+const wb = new WeightBalancedTree((a, b) => a.localeCompare(b));
+wb.set('delta', 4).set('alpha', 1).set('charlie', 3);
+wb.validate();        // true
 ```

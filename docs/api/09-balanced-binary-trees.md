@@ -1,6 +1,6 @@
 # Part 9 — Balanced Binary Trees
 
-**Module:** `ds-app/balanced-trees` · **Source:** `src/balanced-trees/` · **Status:** in progress
+**Module:** `ds-app/balanced-trees` · **Source:** `src/balanced-trees/` · **Status:** done
 
 ## Scope
 
@@ -9,10 +9,11 @@ red-black trees, and weight-balanced trees. Splay trees (amortized), randomized
 trees (expected), and B-trees (high branching) are separate parts but share the
 same ordered-map contract.
 
-Current implementations: `AVLTree` and `RedBlackTree`, which maintain cached
-heights and subtree sizes, order statistics, range queries, destructive
-`join`/`split`, and serialization. `RedBlackTree` also caches each node's
-black-height. Weight-balanced trees are still planned.
+Current implementations: `AVLTree`, `RedBlackTree`, and `WeightBalancedTree`,
+which maintain cached heights and subtree sizes, order statistics, range
+queries, destructive `join`/`split`, and serialization. `RedBlackTree` also
+caches each node's black-height; `WeightBalancedTree` uses the BB[α] condition
+with `α = 1/4` and the standard Data.Map-style size-ratio rotations.
 
 ## Common API
 
@@ -61,10 +62,11 @@ Shared members come from [`Container`](./00-common-contract.md#container);
 
 Definitions: `n` elements, `k` reported entries, `α` weight-balance parameter.
 All bounds are worst case. Weight-balanced rebalancing with rotations does O(1)
-work at each ancestor on the update path, so an update is O(log n) worst case
-and performs O(1) rotations amortized (Blum and Mehlhorn). Only the
-partial-rebuilding variant of BB[α] has amortized bounds, and it is not used
-here.
+work at each ancestor on the update path, so an update is O(log n) worst case.
+The implementation uses `α = 1/4` (size ratio `δ = 3`, rotation ratio `2`), so
+every child subtree is at least one quarter of its parent; a one-sided node is
+allowed only for subtrees of at most two nodes. Only the partial-rebuilding
+variant of BB[α] has amortized bounds, and it is not used here.
 
 ### Notes
 
@@ -76,8 +78,10 @@ here.
   Insert needs at most two rotations, delete at most three; each node caches
   its subtree black-height so `join` can locate the correct attachment point.
 - **Weight-balanced (BB[α]):** keeps each subtree's size within an `α` fraction
-  of its parent; `α` controls the height/rotation tradeoff. The implementation
-  defaults to a value that guarantees O(log n) height.
+  of its parent; `α` controls the height/rotation tradeoff. This implementation
+  fixes `α = 1/4` (`δ = 3`), which guarantees O(log n) height and lets a single
+  or double rotation restore balance after one modification. Updates rebuild
+  the affected path; `join`/`split` reuse untouched subtrees.
 - Order-statistic augmentation (`size` per node) is optional; when disabled,
   `at`/`indexOf` throw.
 - Iterators are invalidated by mutation, as defined in the common contract.

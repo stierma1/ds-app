@@ -33,7 +33,8 @@
     "benchmark:phase3-mwpl": "node benchmarks/phase3-mwpl.ts",
     "benchmark:phase3-skew": "node benchmarks/phase3-skew.ts",
     "benchmark:phase4-avl": "node benchmarks/phase4-avl.ts",
-    "benchmark:phase4-rb": "node benchmarks/phase4-rb.ts"
+    "benchmark:phase4-rb": "node benchmarks/phase4-rb.ts",
+    "benchmark:phase4-wb": "node benchmarks/phase4-wb.ts"
   },
   "engines": {
     "node": ">=22.18"
