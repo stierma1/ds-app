@@ -181,8 +181,9 @@ counted through the comparator):
 
 Status legend: `planned` · `in progress` · `done`. Current status: **Phase 4,
 in progress**; `balanced-trees` ships the AVL, red-black, and weight-balanced
-trees, and `splay-trees` ships the bottom-up and top-down variants, with
-`randomized`, `finger-search-trees`, and `b-trees` remaining. Phase 3 (`heaps`,
+trees, `splay-trees` ships the bottom-up and top-down variants, and `randomized`
+ships treaps, randomized BSTs, skip lists, and randomized meldable heaps, with
+`finger-search-trees` and `b-trees` remaining. Phase 3 (`heaps`,
 `leftist-trees`, `skew-heaps`, `depq`, and `mwpl-trees`) is done.
 
 Dependencies flow left to right and top to bottom: trees before search trees,
@@ -285,15 +286,20 @@ order-statistic queries, range iteration, destructive `join`/`split`,
 serialization, and `validate()`. `splay-trees` implements bottom-up
 (`SplayTree`, also exported as `BottomUpSplayTree`) and top-down
 (`TopDownSplayTree`) self-adjusting trees with cached subtree sizes, destructive
-`join`/`split`, serialization, and `validate()`. Run
+`join`/`split`, serialization, and `validate()`. `randomized` implements
+`Treap`, `RandomizedBST`, `SkipList`, and `RandomizedMeldableHeap`, all driven by
+the core xoshiro128** `SeededRandom`, with order statistics, range iteration,
+meld ownership, serialization, and `validate()`. Run
 `npm run benchmark:phase4-avl`, `npm run benchmark:phase4-rb`,
-`npm run benchmark:phase4-wb`, and `npm run benchmark:phase4-splay` for balanced
-and splay versus unbalanced-BST comparisons, including sorted-input,
-locality-heavy, and join/split workloads;
+`npm run benchmark:phase4-wb`, `npm run benchmark:phase4-splay`, and
+`npm run benchmark:phase4-randomized` for balanced, splay, and randomized
+versus unbalanced-BST comparisons, including sorted-input, locality-heavy,
+join/split, and meld workloads;
 `tests/unit/balanced-trees-avl.test.ts`, `tests/unit/balanced-trees-rb.test.ts`,
-`tests/unit/balanced-trees-wb.test.ts`, and `tests/unit/splay-trees.test.ts`
-cover the ordered-map contract, balance and splay invariants, randomized
-differential checks, and split/join partitioning.
+`tests/unit/balanced-trees-wb.test.ts`, `tests/unit/splay-trees.test.ts`, and
+`tests/unit/randomized.test.ts` cover the ordered-map contract, balance, splay,
+and heap invariants, randomized differential checks, expected height/level
+bounds, and split/join/meld ownership.
 
 ---
 

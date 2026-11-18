@@ -7,6 +7,7 @@ export * from "./heaps/index.ts";
 export * from "./leftist-trees/index.ts";
 export * from "./lists/index.ts";
 export * from "./mwpl-trees/index.ts";
+export * from "./randomized/index.ts";
 export * from "./sets/index.ts";
 export * from "./skew-heaps/index.ts";
 export * from "./splay-trees/index.ts";

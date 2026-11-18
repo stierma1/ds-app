@@ -1,6 +1,6 @@
 # Part 12 — Randomized Dictionary Structures
 
-**Module:** `ds-app/randomized` · **Source:** `src/randomized/` · **Status:** planned
+**Module:** `ds-app/randomized` · **Source:** `src/randomized/` · **Status:** done
 
 ## Scope
 
@@ -59,6 +59,7 @@ members come from
 | `delete` | O(log n) expected | O(log n) expected | O(log n) expected | — |
 | `min` / `max` | O(log n) expected | O(log n) expected | O(1) expected at ends | — |
 | `predecessor` / `successor` | O(log n) expected | O(log n) expected | O(log n) expected | — |
+| `at` / `indexOf` | O(h) expected | O(h) expected | O(log n) expected | — |
 | `range` | O(log n + k) expected | O(log n + k) expected | O(log n + k) expected | — |
 | `push` / `pop` / `peek` | — | — | — | O(log n) expected / O(log n) expected / O(1) |
 | `merge` | — | — | — | O(log n) expected |
@@ -71,13 +72,16 @@ guarantee.
 
 ### Notes
 
-- **Treap:** a BST ordered by key and a heap ordered by random priority. Rotations
-  restore heap order after insert/delete.
-- **Randomized BST:** stores subtree sizes and performs randomized rotations
-  during insertion; equivalent in distribution to a random BST.
+- **Treap:** a BST ordered by key and a heap ordered by random priority. A split
+  at the new key installs it as a subtree root, and merging by priority restores
+  heap order after deletion.
+- **Randomized BST:** stores subtree sizes and inserts a new key at the root of a
+  subtree with probability `1 / (n + 1)`; this is equivalent in distribution to
+  a random BST. Deletion joins the remaining subtrees in proportion to size.
 - **Skip list:** a hierarchy of linked lists with geometrically distributed
-  levels. Search starts at the top-left and drops levels. Space is expected
-  `O(n)` because each node's level is geometric.
+  levels. Search starts at the top-left and drops levels. Each forward pointer
+  stores a span, so rank/select does not scan. Space is expected `O(n)` because
+  each node's level is geometric.
 - **Randomized meldable heap:** keeps the smaller root (heap order is never
   violated), flips a fair coin to pick that root's left or right child, and
   recursively melds that child with the other heap (Gambin and Malinowski);

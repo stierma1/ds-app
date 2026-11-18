@@ -22,6 +22,13 @@ export {
   ConsumedError,
   UnsupportedError,
 } from "./errors.ts";
+export {
+  createRandomSource,
+  randomSeed,
+  resolveRandomSource,
+  SeededRandom,
+} from "./random.ts";
+export type { RandomSource } from "./random.ts";
 export type { OrderedMap, RangeOptions } from "./ordered-map.ts";
 export type { SetLike } from "./set.ts";
 export {
