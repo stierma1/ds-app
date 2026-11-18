@@ -24,7 +24,7 @@ static `deserialize(json): T`.
 | 11 | [Splay Trees](./11-splay-trees.md) | `OrderedMap<K,V>` | `ds-app/splay-trees` |
 | 12 | [Randomized Dictionary Structures](./12-randomized-dictionaries.md) | `OrderedMap<K,V>`, `MeldablePriorityQueue<T>` | `ds-app/randomized` |
 | 13 | [Trees with Minimum Weighted Path Length](./13-mwpl-trees.md) | `PrefixCode<S>` | `ds-app/mwpl-trees` |
-| 14 | [B Trees](./14-b-trees.md) | `OrderedMap<K,V>` | `ds-app/b-trees` |
+| 14 | [B Trees](./14-b-trees.md) | `BTree<K,V>` | `ds-app/b-trees` |
 | 15 | [Multidimensional Spatial Data Structures](./15-multidimensional-spatial.md) | `PointIndex<T>` | `ds-app/spatial` |
 | 16 | [Planar Straight Line Graphs](./16-pslg.md) | `PlanarGraph` | `ds-app/pslg` |
 | 17 | [Interval, Segment, Range, and Priority Search Trees](./17-interval-segment-range-priority.md) | `IntervalIndex<T>`, `SegmentTree<T>`, `RangeTree<T>`, `RangeTreeD<T>`, `PrioritySearchTree<T>`, `FenwickTree<T>`, `RangeMinimumQuery<T>` | `ds-app/interval-trees` |

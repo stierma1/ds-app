@@ -1,6 +1,6 @@
 # Part 14 — B Trees
 
-**Module:** `ds-app/b-trees` · **Source:** `src/b-trees/` · **Status:** planned
+**Module:** `ds-app/b-trees` · **Source:** `src/b-trees/` · **Status:** in progress
 
 ## Scope
 
@@ -8,13 +8,20 @@ Multiway search trees with high fan-out, designed for block storage and
 cache-efficient ordered dictionaries: B-trees, B+-trees, B*-trees, and 2-3-4
 trees. All use the ordered-map surface plus bulk loading and height access.
 
+Current implementation: `BTree`, the general order-parameterized tree, and
+`TwoThreeFourTree`, its order-4 special case. Both ship the full ordered-map
+surface, top-down search with split-on-overflow insertion,
+predecessor-substitution deletion with borrow/merge underflow repair, linear
+time `bulkLoad`, cached subtree counts for `at`/`indexOf`, and serialization.
+The B+-tree and B*-tree variants are planned.
+
 ## Common API
 
 ```ts
 import type { Comparator, OrderedMap } from 'ds-app/core';
 
 export interface BTreeOptions<K> {
-  order: number;
+  order?: number;
   compare?: Comparator<K>;
 }
 
@@ -33,16 +40,19 @@ Shared members come from [`Container`](./00-common-contract.md#container);
 ### Semantics
 
 - `order` is the maximum number of children per internal node; it must be at
-  least 3. `minFill` is `ceil(order / 2)` for B-trees and B+-trees, and
-  `ceil(2 · order / 3)` for B*-trees.
+  least 3. `TwoThreeFourTree` fixes it to 4 and throws `RangeError` for any
+  other explicit value. `minFill` is `ceil(order / 2)` for B-trees and
+  B+-trees, and `ceil(2 · order / 3)` for B*-trees; the 2-3-4 tree reports 2.
 - Every leaf is at the same depth; `height` is the number of edges from root to
   leaf.
 - In a B+-tree, internal nodes store separator keys only; all entries live in
   linked leaves. In a B-tree, entries may live in internal nodes.
 - `bulkLoad` requires entries sorted by key ascending and replaces the current
-  contents. Unsorted input throws `RangeError`.
+  contents. Unsorted input throws `RangeError` before the tree is changed;
+  comparator-equal keys keep the last value, matching repeated `set`.
 - `validate()` checks node occupancy, key order, child-range containment, equal
-  leaf depth, leaf links (B+-tree), and size.
+  leaf depth, parent links, cached subtree counts, leaf links (B+-tree), and
+  size.
 
 ## Implementations and complexity
 
@@ -60,45 +70,70 @@ Shared members come from [`Container`](./00-common-contract.md#container);
 
 Definitions: `n` entries, `k` reported entries. With node capacity `B`, a search
 touches `O(log_B n)` nodes. On block storage, B+-tree range scans cost
-`O(log_B n + k/B)` block transfers because leaves are linked.
+`O(log_B n + k/B)` block transfers because leaves are linked. The table lists
+the full family; the B-tree and 2-3-4 columns are implemented today.
 
 ### Notes
 
-- The B-tree implementation uses the book's split-on-overflow and
-  merge/borrow-on-underflow procedures.
+- `BTree` and `TwoThreeFourTree` use the book's split-on-overflow and
+  merge/borrow-on-underflow procedures. Each node caches its subtree entry
+  count, so `at` and `indexOf` are `O(log n)` and stay consistent through
+  splits, borrows, merges, and `bulkLoad`.
+- The general `BTree` accepts any integer `order` of at least 3, defaulting to
+  4. `TwoThreeFourTree` is the same algorithm with `order` fixed to 4.
 - The B+-tree keeps all values in leaves and links leaves in key order; this
   makes range scans and sequential iteration cache-friendly.
 - The B*-tree uses two-to-three redistribution before splitting, raising the
   average fill factor to about 2/3 and reducing space overhead.
 - The 2-3-4 tree is the order-4 special case; it is isomorphic to a red-black
   tree and is included for teaching and cross-checking.
-- `bulkLoad` builds bottom-up in linear time from sorted input: nodes are
-  filled left to right and every `order`-th key is promoted to the next level,
-  as a separator copy in a B+-tree or as the entry itself in a B-tree,
-  B*-tree, or 2-3-4 tree. Repeated `set` on sorted input costs `O(n log n)`.
+- `bulkLoad` constructs the tree directly in linear time from sorted input. The
+  2-3-4 tree chooses the smallest height that fits the input, then fills each
+  node with a feasible number of separator entries and recursively partitions
+  the remaining entries across its children, so every subtree lands inside its
+  occupancy window. Repeated `set` on sorted input costs `O(n log n)`.
 - `validate()` is O(n) and is intended for tests, not hot paths.
 
 ## Example
 
 ```js
-import { BPlusTree } from 'ds-app/b-trees';
+import { BTree } from 'ds-app/b-trees';
 
-const tree = new BPlusTree({ order: 4, compare: (a, b) => a - b });
+const wide = new BTree({ order: 8 });
+[3, 1, 4, 1, 5, 9, 2, 6].forEach((k) => wide.set(k, k * 10));
+
+wide.get(4);              // 40
+wide.order;               // 8
+wide.minFill;             // 4
+wide.height;              // 0
+wide.validate();          // true
+```
+
+```js
+import { TwoThreeFourTree } from 'ds-app/b-trees';
+
+const tree = new TwoThreeFourTree((a, b) => a - b);
 [3, 1, 4, 1, 5, 9, 2, 6].forEach((k) => tree.set(k, k * 10));
 
 tree.get(4);              // 40
 [...tree.keys()];         // [1, 2, 3, 4, 5, 6, 9]
 tree.range(2, 5);         // entries for 2, 3, 4, 5
 tree.validate();          // true
+
+tree.bulkLoad([[10, 100], [20, 200]]);
+tree.height;              // 0
 ```
 
 ## Conformance checklist
 
-- All variants pass the ordered-map conformance suite.
+- All variants pass the ordered-map conformance suite. `BTree` is covered by
+  `tests/unit/b-trees.test.ts` and `TwoThreeFourTree` by
+  `tests/unit/b-trees-234.test.ts`.
 - Occupancy bounds hold after random insert/delete sequences, including
   underflow at the root.
 - All leaves stay at the same depth; B+-tree leaf links match key order.
 - `bulkLoad` matches repeated `set` and rejects unsorted input.
-- `validate()` detects overfull/underfull nodes, an out-of-range key, and a
-  broken leaf link.
-- Large loads are benchmarked for block-transfer counts as well as time.
+- `validate()` detects overfull/underfull nodes, an out-of-range key, a stale
+  subtree count, and a broken leaf link.
+- Large loads are benchmarked for block-transfer counts as well as time; run
+  `npm run benchmark:phase4-b-trees` for the current B-tree comparisons.

@@ -182,9 +182,10 @@ counted through the comparator):
 Status legend: `planned` · `in progress` · `done`. Current status: **Phase 4,
 in progress**; `balanced-trees` ships the AVL, red-black, and weight-balanced
 trees, `splay-trees` ships the bottom-up and top-down variants, `randomized`
-ships treaps, randomized BSTs, skip lists, and randomized meldable heaps, and
+ships treaps, randomized BSTs, skip lists, and randomized meldable heaps,
 `finger-search-trees` ships the level-linked (2,4) tree and the finger treap,
-with `b-trees` remaining. Phase 3 (`heaps`,
+and `b-trees` ships the general B-tree and the 2-3-4 tree, with the B+-tree
+and B*-tree variants remaining. Phase 3 (`heaps`,
 `leftist-trees`, `skew-heaps`, `depq`, and `mwpl-trees`) is done.
 
 Dependencies flow left to right and top to bottom: trees before search trees,
@@ -295,20 +296,26 @@ implements `LevelLinkedTree`, a level-linked (2,4)-tree with finger search and
 neighbour queries, and `FingerTreap`, a treap with parent pointers and
 finger-local search; both support `fingerAt`, `findFrom`, `insertAfter`,
 `deleteAt`, `successorFrom`, `predecessorFrom`, `distance`, destructive
-`join`/`splitAt`, serialization, and `validate()`. Run
-`npm run benchmark:phase4-avl`, `npm run benchmark:phase4-rb`,
+`join`/`splitAt`, serialization, and `validate()`. `b-trees` implements the
+general order-parameterized `BTree` and `TwoThreeFourTree`, the order-4 special
+case. Both use split-on-overflow insertion, predecessor-substitution deletion,
+borrow/merge underflow repair, cached subtree counts for order statistics,
+linear-time `bulkLoad`, serialization, and `validate()`; the B+-tree and
+B*-tree variants remain planned.
+Run `npm run benchmark:phase4-avl`, `npm run benchmark:phase4-rb`,
 `npm run benchmark:phase4-wb`, `npm run benchmark:phase4-splay`,
-`npm run benchmark:phase4-randomized`, and
-`npm run benchmark:phase4-finger` for balanced, splay, randomized, and
-finger-search versus full-lookup comparisons, including sorted-input,
-locality-heavy, join/split, meld, and finger-distance workloads;
-`tests/unit/balanced-trees-avl.test.ts`, `tests/unit/balanced-trees-rb.test.ts`,
-`tests/unit/balanced-trees-wb.test.ts`, `tests/unit/splay-trees.test.ts`,
-`tests/unit/randomized.test.ts`, and
-`tests/unit/finger-search-trees.test.ts` cover the ordered-map contract,
-balance, splay, and heap invariants, randomized differential checks, expected
-height/level bounds, split/join/meld ownership, level links, and finger
-invalidation.
+`npm run benchmark:phase4-randomized`, `npm run benchmark:phase4-finger`, and
+`npm run benchmark:phase4-b-trees` for balanced, splay, randomized,
+finger-search, and B-tree versus unbalanced-BST comparisons, including
+sorted-input, locality-heavy, join/split, meld, finger-distance, and bulk-load
+workloads; `tests/unit/balanced-trees-avl.test.ts`,
+`tests/unit/balanced-trees-rb.test.ts`, `tests/unit/balanced-trees-wb.test.ts`,
+`tests/unit/splay-trees.test.ts`, `tests/unit/randomized.test.ts`,
+`tests/unit/finger-search-trees.test.ts`, `tests/unit/b-trees.test.ts`, and
+`tests/unit/b-trees-234.test.ts` cover the ordered-map contract, balance,
+splay, heap, B-tree, and 2-3-4 invariants, randomized differential checks,
+expected height/level bounds, split/join/meld ownership, level links, finger
+invalidation, occupancy, and bulk loading.
 
 ---
 
