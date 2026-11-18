@@ -181,9 +181,10 @@ counted through the comparator):
 
 Status legend: `planned` · `in progress` · `done`. Current status: **Phase 4,
 in progress**; `balanced-trees` ships the AVL, red-black, and weight-balanced
-trees, `splay-trees` ships the bottom-up and top-down variants, and `randomized`
-ships treaps, randomized BSTs, skip lists, and randomized meldable heaps, with
-`finger-search-trees` and `b-trees` remaining. Phase 3 (`heaps`,
+trees, `splay-trees` ships the bottom-up and top-down variants, `randomized`
+ships treaps, randomized BSTs, skip lists, and randomized meldable heaps, and
+`finger-search-trees` ships the level-linked (2,4) tree and the finger treap,
+with `b-trees` remaining. Phase 3 (`heaps`,
 `leftist-trees`, `skew-heaps`, `depq`, and `mwpl-trees`) is done.
 
 Dependencies flow left to right and top to bottom: trees before search trees,
@@ -289,17 +290,25 @@ serialization, and `validate()`. `splay-trees` implements bottom-up
 `join`/`split`, serialization, and `validate()`. `randomized` implements
 `Treap`, `RandomizedBST`, `SkipList`, and `RandomizedMeldableHeap`, all driven by
 the core xoshiro128** `SeededRandom`, with order statistics, range iteration,
-meld ownership, serialization, and `validate()`. Run
+meld ownership, serialization, and `validate()`. `finger-search-trees`
+implements `LevelLinkedTree`, a level-linked (2,4)-tree with finger search and
+neighbour queries, and `FingerTreap`, a treap with parent pointers and
+finger-local search; both support `fingerAt`, `findFrom`, `insertAfter`,
+`deleteAt`, `successorFrom`, `predecessorFrom`, `distance`, destructive
+`join`/`splitAt`, serialization, and `validate()`. Run
 `npm run benchmark:phase4-avl`, `npm run benchmark:phase4-rb`,
-`npm run benchmark:phase4-wb`, `npm run benchmark:phase4-splay`, and
-`npm run benchmark:phase4-randomized` for balanced, splay, and randomized
-versus unbalanced-BST comparisons, including sorted-input, locality-heavy,
-join/split, and meld workloads;
+`npm run benchmark:phase4-wb`, `npm run benchmark:phase4-splay`,
+`npm run benchmark:phase4-randomized`, and
+`npm run benchmark:phase4-finger` for balanced, splay, randomized, and
+finger-search versus full-lookup comparisons, including sorted-input,
+locality-heavy, join/split, meld, and finger-distance workloads;
 `tests/unit/balanced-trees-avl.test.ts`, `tests/unit/balanced-trees-rb.test.ts`,
-`tests/unit/balanced-trees-wb.test.ts`, `tests/unit/splay-trees.test.ts`, and
-`tests/unit/randomized.test.ts` cover the ordered-map contract, balance, splay,
-and heap invariants, randomized differential checks, expected height/level
-bounds, and split/join/meld ownership.
+`tests/unit/balanced-trees-wb.test.ts`, `tests/unit/splay-trees.test.ts`,
+`tests/unit/randomized.test.ts`, and
+`tests/unit/finger-search-trees.test.ts` cover the ordered-map contract,
+balance, splay, and heap invariants, randomized differential checks, expected
+height/level bounds, split/join/meld ownership, level links, and finger
+invalidation.
 
 ---
 

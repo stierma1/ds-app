@@ -1,13 +1,13 @@
 # Part 10 — Finger Search Trees
 
-**Module:** `ds-app/finger-search-trees` · **Source:** `src/finger-search-trees/` · **Status:** planned
+**Module:** `ds-app/finger-search-trees` · **Source:** `src/finger-search-trees/` · **Status:** done
 
 ## Scope
 
 Ordered dictionaries that remember a position — a *finger* — and support
 searches whose cost depends on the distance from that finger rather than on the
-total number of elements. The primary implementation is a level-linked (2,4)
-tree. A meldable finger search variant is included.
+total number of elements. The module ships `LevelLinkedTree`, a level-linked
+(2,4) tree, and `FingerTreap`, a treap with fingers and structural melding.
 
 ## Common API
 
@@ -59,8 +59,8 @@ Shared members come from [`Container`](./00-common-contract.md#container);
 | Operation | Level-linked (2,4) tree | Treap with fingers | Brodal finger tree |
 |-----------|-------------------------|--------------------|--------------------|
 | `findFrom(finger, key)` | O(log d) | O(log d) expected | O(log d) |
-| `insertAfter(finger, key, value)` | O(1) amortized, O(log n) worst | O(log n) expected | O(1) |
-| `deleteAt(finger)` | O(1) amortized, O(log n) worst | O(log n) expected | O(1) |
+| `insertAfter(finger, key, value)` | O(log n) | O(log n) expected | O(1) |
+| `deleteAt(finger)` | O(log n) | O(log n) expected | O(1) |
 | `successorFrom` / `predecessorFrom` | O(1) | O(1) | O(1) |
 | `distance` | O(log n) | O(log n) expected | O(log n) |
 | `set` / `get` / `delete` | O(log n) | O(log n) expected | O(log n) |
@@ -70,9 +70,11 @@ Shared members come from [`Container`](./00-common-contract.md#container);
 
 Definitions: `n` elements, `d` finger distance, `k` reported entries. `O(log d)`
 is the defining search bound: when `d` is small, the search is much cheaper than
-a full search. The level-linked (2,4) tree gives `O(log d)` search and `O(1)`
-amortized updates at a finger (Huddleston and Mehlhorn), with an `O(log n)`
-worst case when node splits or fusions cascade. The structure of Brodal,
+a full search. The level-linked (2,4) tree gives `O(log d)` search. Its
+restructuring at a finger (node splits and fusions) is `O(1)` amortized
+(Huddleston and Mehlhorn), but each update also refreshes the subtree counts on
+the path to the root, so `insertAfter` and `deleteAt` cost `O(log n)`; see the
+notes. The structure of Brodal,
 Lagogiannis, Makris, Tsakalidis, and Tsichlas gives `O(1)` worst-case updates;
 it is planned as an opt-in implementation.
 
@@ -80,12 +82,20 @@ it is planned as an opt-in implementation.
 
 - The level-linked (2,4) tree stores each level as a doubly linked list of
   nodes, so a finger can climb and descend levels without traversing the whole
-  tree.
+  tree. `join` and `splitAt` work structurally on the facing spines and the cut
+  path, relinking or severing level links at each height in O(log n).
 - A treap with parent pointers and a stored finger node is a simpler
   expected-bound implementation; it is useful as a reference and for workloads
   where determinism is supplied by a seed.
 - `distance` is computed from ranks; it requires subtree-size augmentation.
-- Fingers are not serialized; `fromJSON()` returns a map with no active fingers.
+  Every update changes the count of each ancestor, which is why level-linked
+  updates are `O(log n)` rather than the `O(1)` amortized of an unaugmented
+  level-linked tree. Updating counts lazily does not help: the deferred
+  `O(log n)` per update is paid by the next `distance`, `at`, or `indexOf`
+  instead. The `O(1)` Brodal update bound likewise assumes no count
+  augmentation.
+- Fingers are not serialized; `deserialize()` returns a map with no active
+  fingers.
 
 ## Example
 

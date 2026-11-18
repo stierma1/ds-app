@@ -1,6 +1,7 @@
 export * from "./balanced-trees/index.ts";
 export * from "./core/index.ts";
 export * from "./depq/index.ts";
+export * from "./finger-search-trees/index.ts";
 export * from "./graphs/index.ts";
 export * from "./hash-tables/index.ts";
 export * from "./heaps/index.ts";
