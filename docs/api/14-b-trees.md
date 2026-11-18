@@ -8,12 +8,14 @@ Multiway search trees with high fan-out, designed for block storage and
 cache-efficient ordered dictionaries: B-trees, B+-trees, B*-trees, and 2-3-4
 trees. All use the ordered-map surface plus bulk loading and height access.
 
-Current implementation: `BTree`, the general order-parameterized tree, and
-`TwoThreeFourTree`, its order-4 special case. Both ship the full ordered-map
-surface, top-down search with split-on-overflow insertion,
-predecessor-substitution deletion with borrow/merge underflow repair, linear
-time `bulkLoad`, cached subtree counts for `at`/`indexOf`, and serialization.
-The B+-tree and B*-tree variants are planned.
+Current implementation: `BTree`, the general order-parameterized tree,
+`BPlusTree`, the linked-leaf B+-tree, and `TwoThreeFourTree`, the order-4
+special case. All ship the full ordered-map surface, top-down search with
+split-on-overflow insertion, borrow/merge underflow repair, linear-time
+`bulkLoad`, cached subtree counts for `at`/`indexOf`, and serialization.
+`BPlusTree` stores separator keys only in internal nodes and all entries in
+doubly linked leaves, so range scans and sequential iteration follow the leaf
+chain after one root descent. The B*-tree variant is planned.
 
 ## Common API
 
@@ -71,16 +73,17 @@ Shared members come from [`Container`](./00-common-contract.md#container);
 Definitions: `n` entries, `k` reported entries. With node capacity `B`, a search
 touches `O(log_B n)` nodes. On block storage, B+-tree range scans cost
 `O(log_B n + k/B)` block transfers because leaves are linked. The table lists
-the full family; the B-tree and 2-3-4 columns are implemented today.
+the full family; the B-tree, B+-tree, and 2-3-4 columns are implemented today.
 
 ### Notes
 
-- `BTree` and `TwoThreeFourTree` use the book's split-on-overflow and
-  merge/borrow-on-underflow procedures. Each node caches its subtree entry
+- `BTree`, `BPlusTree`, and `TwoThreeFourTree` use split-on-overflow insertion
+  and merge/borrow-on-underflow deletion. Each node caches its subtree entry
   count, so `at` and `indexOf` are `O(log n)` and stay consistent through
   splits, borrows, merges, and `bulkLoad`.
-- The general `BTree` accepts any integer `order` of at least 3, defaulting to
-  4. `TwoThreeFourTree` is the same algorithm with `order` fixed to 4.
+- The general `BTree` and `BPlusTree` accept any integer `order` of at least 3,
+  defaulting to 4. `TwoThreeFourTree` is the same algorithm with `order` fixed
+  to 4.
 - The B+-tree keeps all values in leaves and links leaves in key order; this
   makes range scans and sequential iteration cache-friendly.
 - The B*-tree uses two-to-three redistribution before splitting, raising the
@@ -110,6 +113,18 @@ wide.validate();          // true
 ```
 
 ```js
+import { BPlusTree } from 'ds-app/b-trees';
+
+const index = new BPlusTree({ order: 8 });
+[3, 1, 4, 1, 5, 9, 2, 6].forEach((k) => index.set(k, k * 10));
+
+index.get(4);             // 40
+[...index.range(2, 5)];   // [[2, 20], [3, 30], [4, 40], [5, 50]]
+index.height;             // 0
+index.validate();         // true
+```
+
+```js
 import { TwoThreeFourTree } from 'ds-app/b-trees';
 
 const tree = new TwoThreeFourTree((a, b) => a - b);
@@ -127,7 +142,8 @@ tree.height;              // 0
 ## Conformance checklist
 
 - All variants pass the ordered-map conformance suite. `BTree` is covered by
-  `tests/unit/b-trees.test.ts` and `TwoThreeFourTree` by
+  `tests/unit/b-trees.test.ts`, `BPlusTree` by
+  `tests/unit/b-trees-bplus.test.ts`, and `TwoThreeFourTree` by
   `tests/unit/b-trees-234.test.ts`.
 - Occupancy bounds hold after random insert/delete sequences, including
   underflow at the root.

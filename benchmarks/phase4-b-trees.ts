@@ -1,5 +1,6 @@
 import {
   BinarySearchTree,
+  BPlusTree,
   BTree,
   TwoThreeFourTree,
 } from "../src/index.ts";
@@ -103,6 +104,36 @@ const rows: Array<Record<string, string | number>> = [];
 }
 
 {
+  const counter = countingComparator();
+  const tree = new BPlusTree<number, number>({
+    order: 8,
+    compare: counter.compare,
+  });
+  const insertMs = milliseconds(() => {
+    for (const key of shuffled) {
+      tree.set(key, key);
+    }
+  });
+  if (tree.validate() !== true) {
+    throw new Error("BPlusTree failed validation after insertion");
+  }
+  counter.calls = 0;
+  const rounds = 30_000;
+  const getMs = milliseconds(() => {
+    for (let index = 0; index < rounds; index++) {
+      tree.get(sorted[(index * 7919) % count] as number);
+    }
+  });
+  rows.push({
+    implementation: "BPlusTree(order 8)",
+    "shuffled insert ms": insertMs.toFixed(1),
+    "get us": ((getMs * 1000) / rounds).toFixed(3),
+    "get comparisons": (counter.calls / rounds).toFixed(2),
+    height: tree.height,
+  });
+}
+
+{
   const tree = new BinarySearchTree<number, number>(compare);
   const insertMs = milliseconds(() => {
     for (const key of shuffled) {
@@ -174,6 +205,30 @@ console.table(rows);
     throw new Error("BTree bulkLoad produced an invalid tree");
   }
   const genericTree = generic;
+  let plus: BPlusTree<number, number> | undefined;
+  const plusBulkMs = milliseconds(() => {
+    const loaded = new BPlusTree<number, number>({
+      order: 8,
+      compare,
+    });
+    loaded.bulkLoad(entries);
+    plus = loaded;
+  });
+  if (plus === undefined || plus.validate() !== true) {
+    throw new Error("BPlusTree bulkLoad produced an invalid tree");
+  }
+  const plusTree = plus;
+  const plusRangeMs = milliseconds(() => {
+    for (let round = 0; round < 5_000; round++) {
+      const index = (round * 7919) % Math.max(1, uniqueSorted.length - 500);
+      for (const _ of plusTree.range(
+        uniqueSorted[index] as number,
+        uniqueSorted[index + 500] as number,
+      )) {
+        // Consume the linked-leaf range.
+      }
+    }
+  });
   console.log("Sorted bulk load and range scans");
   console.table([
     {
@@ -192,8 +247,17 @@ console.table(rows);
       height: genericTree.height,
     },
     {
+      implementation: "BPlusTree(order 8).bulkLoad",
+      "load ms": plusBulkMs.toFixed(1),
+      height: plusTree.height,
+    },
+    {
       implementation: "range of 501 entries",
       "5k scans ms": rangeMs.toFixed(1),
+    },
+    {
+      implementation: "BPlusTree range of 501 entries",
+      "5k scans ms": plusRangeMs.toFixed(1),
     },
   ]);
 }

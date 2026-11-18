@@ -1,30 +1,37 @@
-# b-trees — B-tree and 2-3-4 tree
+# b-trees — B-tree, B+-tree, and 2-3-4 tree
 
 Multiway ordered dictionaries for cache-friendly storage. This module ships
-`BTree`, the general order-parameterized B-tree, and `TwoThreeFourTree`, its
-order-4 special case; the B+-tree and B*-tree variants are planned.
+`BTree`, the general order-parameterized B-tree, `BPlusTree`, the linked-leaf
+B+-tree, and `TwoThreeFourTree`, its order-4 special case; the B*-tree variant
+is planned.
 
 ## Contract
 
-`BTree<K, V>` and `TwoThreeFourTree<K, V>` implement the `BTree<K, V>` contract
-from [`docs/api/14-b-trees.md`](../../docs/api/14-b-trees.md), which extends
+`BTree<K, V>`, `BPlusTree<K, V>`, and `TwoThreeFourTree<K, V>` implement the
+`BTree<K, V>` contract from
+[`docs/api/14-b-trees.md`](../../docs/api/14-b-trees.md), which extends
 `OrderedMap<K, V>`:
 
 - `set/get/has/delete`, `min/max`, `predecessor/successor`, `at/indexOf`, and
   ascending `range/keys/values/entries` iteration.
-- `BTree` accepts any integer `order` of at least 3 and defaults to 4;
-  `TwoThreeFourTree` always uses order 4 and rejects any other explicit value
-  with `RangeError`. `minFill` is `ceil(order / 2)`, and `height` is the number
-  of edges from the root to a leaf (`-1` when empty). The constructor accepts
-  either a comparator or `BTreeOptions`.
+- `BTree` and `BPlusTree` accept any integer `order` of at least 3 and default
+  to 4; `TwoThreeFourTree` always uses order 4 and rejects any other explicit
+  value with `RangeError`. `minFill` is `ceil(order / 2)`, and `height` is the
+  number of edges from the root to a leaf (`-1` when empty). The constructor
+  accepts either a comparator or `BTreeOptions`.
+- `BPlusTree` stores separator keys in internal nodes and all entries in
+  linked leaves. `range` performs one root descent and then follows the leaf
+  chain, so sequential scans never revisit internal nodes.
 - `bulkLoad(entries)` requires ascending keys, replaces the contents in linear
   time, and throws `RangeError` before modifying the tree when a key is smaller
   than its predecessor. Comparator-equal keys keep the last value, matching
   repeated `set`.
-- `validate()` checks occupancy, strict key order, child-range containment,
-  parent links, equal leaf depth, cached subtree counts, and size.
+- `validate()` checks occupancy, strict separator and leaf key order,
+  child-range containment, parent links, equal leaf depth, cached subtree
+  counts, size, and the doubly linked leaf chain.
 - `serialize()` / `deserialize(json, compareOrOptions?)` use the stable
-  `{ type: "BTree" | "TwoThreeFourTree", version: 1, entries }` shape.
+  `{ type: "BTree" | "BPlusTree" | "TwoThreeFourTree", version: 1, entries }`
+  shape.
 
 ## Complexity
 
@@ -38,10 +45,10 @@ from [`docs/api/14-b-trees.md`](../../docs/api/14-b-trees.md), which extends
 | `min` / `max` | O(log n) | Leftmost or rightmost spine. |
 | `predecessor` / `successor` | O(log n) | Works for absent keys. |
 | `at` / `indexOf` | O(log n) | Cached subtree entry counts. |
-| `range` | O(log n + k) | Pruned in-order walk from the lower bound. |
+| `range` | O(log n + k) | B-tree prunes an in-order walk; B+-tree follows linked leaves in O(k). |
 | `bulkLoad` | O(n) | Direct construction from sorted entries. |
 | `height` | O(1) | Cached and updated on root splits/collapses. |
-| Iteration / `toArray` | O(n) | Ascending by key. |
+| Iteration / `toArray` | O(n) | Ascending by key; B+-tree follows the leaf chain. |
 | Space | O(n) | One parent pointer and one count per node. |
 
 ## Invariants
@@ -57,7 +64,11 @@ from [`docs/api/14-b-trees.md`](../../docs/api/14-b-trees.md), which extends
    `null`.
 6. Every cached subtree count equals the number of entries below it, and the
    root count equals `size`.
-7. `bulkLoad` produces the same ordered content as repeated `set` over the same
+7. In a B+-tree, internal nodes hold no values; every entry lives in a leaf,
+   and the leaves form a doubly linked list in ascending key order. An internal
+   separator is at most the smallest key of its right subtree and greater than
+   every key of its left subtree.
+8. `bulkLoad` produces the same ordered content as repeated `set` over the same
    deduplicated keys.
 
 ## Example
@@ -72,6 +83,24 @@ wide.get(4);          // 40
 wide.order;           // 8
 wide.minFill;         // 4
 wide.validate();      // true
+```
+
+```js
+import { BPlusTree } from 'ds-app/b-trees';
+
+const index = new BPlusTree({ order: 8 });
+for (const key of [3, 1, 4, 1, 5, 9, 2, 6]) {
+  index.set(key, key * 10);
+}
+
+index.get(4);         // 40
+[...index.range(2, 5)]; // [[2, 20], [3, 30], [4, 40], [5, 50]]
+index.height;         // 0
+index.validate();     // true
+
+index.bulkLoad([[10, 100], [20, 200]]);
+index.size;           // 2
+index.height;         // 0
 ```
 
 ```js
